@@ -3015,5 +3015,51 @@ quoteInit();
 if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget')showView('bud');else if(location.hash==='#guide')showView('guide');else buildNav('main');
 })();
 </script>
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyB9TgiAwsTSjNykHetMhiUAjiO5bnsMrB8",
+    authDomain: "myasset-db.firebaseapp.com",
+    databaseURL: "https://myasset-db-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "myasset-db",
+    storageBucket: "myasset-db.firebasestorage.app",
+    messagingSenderId: "906118445979",
+    appId: "1:906118445979:web:b4b28b30afd0e54f29bf3e",
+    measurementId: "G-S4TFFHLD8H"
+  };
+
+// 3. Firebase 초기화
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const dataRef = ref(db, 'pensionData'); // Realtime Database 저장 위치 키 이름
+
+  // 4. [수신] 다른 기기나 내가 데이터를 변경했을 때 화면 자동 실시간 동기화
+  onValue(dataRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      // Firebase에서 가져온 최신 데이터를 화면(UI)이나 입력 폼에 바인딩
+      console.log("실시간 데이터 수신:", data);
+      // 예: renderDataToUI(data); 또는 loadDataIntoApp(data);
+    }
+  });
+
+  // 5. [송신] 화면에서 데이터를 수정하거나 저장 버튼을 눌렀을 때 Firebase로 데이터 전송
+  window.saveToFirebase = function(payload) {
+    set(dataRef, payload)
+      .then(() => {
+        console.log("Firebase 동기화 성공!");
+      })
+      .catch((error) => {
+        console.error("Firebase 동기화 실패:", error);
+      });
+  };
+</script>  
 </body>
 </html>
