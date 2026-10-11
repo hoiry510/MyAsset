@@ -1171,7 +1171,12 @@ function load(){
   try{var raw=localStorage.getItem(STORE)||localStorage.getItem('family-pension-v2');if(raw){var o=JSON.parse(raw);if(o&&(o.v===2||o.v===3)&&o.people)return merge(o)}}catch(e){}
   return defaults();
 }
-function merge(o){var d=defaults();if(o.budget&&o.budget.months)Object.keys(o.budget.months).forEach(function(k){var m=o.budget.months[k];if(!Array.isArray(m.items))m.items=[];if(Array.isArray(m.tx)&&m.tx.length){var sm={};m.tx.forEach(function(t){sm[t.item]=(sm[t.item]||0)+n(t.amount)});m.items.forEach(function(it){if(it.act==null||it.act==='')it.act=sm[it.id]||''})}m.tx=[]});if(!Array.isArray(o.goals))o.goals=[];if(!Array.isArray(o.snaps))o.snaps=[];if(!o.budget||(!o.budget.months&&!Array.isArray(o.budget.revs)))o.budget=defaultBudget();if(!Array.isArray(o.budget.revs)){var ks=Object.keys(o.budget.months||{}).sort();o.budget={v:2,cur:'',revs:ks.map(function(k){var p=k.split('-');return {id:'r-'+k,date:k+'-01',label:p[0]+'년 '+(+p[1])+'월',memo:'월별 기록에서 옮김',items:o.budget.months[k].items||[]}})};if(!o.budget.revs.length)o.budget=defaultBudget()}if(!o.rebal)o.rebal=defaultRebal(false);else{var dr=defaultRebal(false);Object.keys(dr).forEach(function(k){if(o.rebal[k]==null)o.rebal[k]=dr[k]});o.rebal.target=Object.assign({},dr.target,o.rebal.target||{});if(!Array.isArray(o.rebal.hist))o.rebal.hist=[]}if(!o.pf)o.pf=defaultPf(false);var dp=defaultPf(false);['accounts','holdings','others'].forEach(function(k){if(!Array.isArray(o.pf[k]))o.pf[k]=[]});o.pf.macro=Object.assign({},dp.macro,o.pf.macro||{});o.pf.ai=Object.assign({},dp.ai,o.pf.ai||{});o.pf.profiles=Object.assign({},dp.profiles,o.pf.profiles||{});['fx','priceDate','eqDomestic'].forEach(function(k){if(o.pf[k]==null)o.pf[k]=dp[k]});o.v=3;o.settings=Object.assign({},d.settings,o.settings||{});['people','assets','incomes','gifts'].forEach(function(k){if(!Array.isArray(o[k]))o[k]=d[k]});return o}
+function merge(o)
+{
+  var d=defaults();
+  if(o.budget&&o.budget.months)
+    Object.keys(o.budget.months).forEach(function(k){var m=o.budget.months[k];if(!Array.isArray(m.items))m.items=[];if(Array.isArray(m.tx)&&m.tx.length){var sm={};m.tx.forEach(function(t){sm[t.item]=(sm[t.item]||0)+n(t.amount)});m.items.forEach(function(it){if(it.act==null||it.act==='')it.act=sm[it.id]||''})}m.tx=[]});if(!Array.isArray(o.goals))o.goals=[];if(!Array.isArray(o.snaps))o.snaps=[];if(!o.budget||(!o.budget.months&&!Array.isArray(o.budget.revs)))o.budget=defaultBudget();if(!Array.isArray(o.budget.revs)){var ks=Object.keys(o.budget.months||{}).sort();o.budget={v:2,cur:'',revs:ks.map(function(k){var p=k.split('-');return {id:'r-'+k,date:k+'-01',label:p[0]+'년 '+(+p[1])+'월',memo:'월별 기록에서 옮김',items:o.budget.months[k].items||[]}})};if(!o.budget.revs.length)o.budget=defaultBudget()}if(!o.rebal)o.rebal=defaultRebal(false);else{var dr=defaultRebal(false);Object.keys(dr).forEach(function(k){if(o.rebal[k]==null)o.rebal[k]=dr[k]});o.rebal.target=Object.assign({},dr.target,o.rebal.target||{});if(!Array.isArray(o.rebal.hist))o.rebal.hist=[]}if(!o.pf)o.pf=defaultPf(false);var dp=defaultPf(false);['accounts','holdings','others'].forEach(function(k){if(!Array.isArray(o.pf[k]))o.pf[k]=[]});o.pf.macro=Object.assign({},dp.macro,o.pf.macro||{});o.pf.ai=Object.assign({},dp.ai,o.pf.ai||{});o.pf.profiles=Object.assign({},dp.profiles,o.pf.profiles||{});['fx','priceDate','eqDomestic'].forEach(function(k){if(o.pf[k]==null)o.pf[k]=dp[k]});o.v=3;o.settings=Object.assign({},d.settings,o.settings||{});['people','assets','incomes','gifts'].forEach(function(k){if(!Array.isArray(o[k]))o[k]=d[k]});return o
+}
 var saveT;
 function saveLocal(){  
  clearTimeout(saveT);  
@@ -1188,6 +1193,19 @@ function saveLocal(){
 
 // Firebase에서 변경된 데이터를 수신하면 화면에 바로 반영하는 함수
 window.applyFirebaseData = function(data) {
+// [수정 1] 전역 큐 변수 추가
+window.firebaseQueuedData = null;
+
+// [수정 2] 기존 applyFirebaseData 덮어쓰기
+window.applyFirebaseData = function(data) {
+  // 사용자가 타이핑 중(포커스 상태)이면 화면을 덮어쓰지 않고 큐에만 임시 저장
+  if (typeof editing === 'function' && editing()) {
+    window.firebaseQueuedData = data;
+    return;
+  }
+  
+  // 타이핑 중이 아니라면 즉시 화면 렌더링
+  window.firebaseQueuedData = null;
   S = merge(JSON.parse(JSON.stringify(data)));
   applySync();
   renderInputs();
@@ -1197,6 +1215,18 @@ window.applyFirebaseData = function(data) {
   renderBudget();
   renderGoals();
   buildNav(curView);
+};
+
+// [수정 3] 입력칸에서 마우스나 키보드 포커스가 빠져나갔을 때 밀린 업데이트 반영
+document.addEventListener('focusout', function() {
+  setTimeout(function() {
+    // 큐에 데이터가 있고, 현재 입력 중인 상태가 아니라면 화면 업데이트
+    if (window.firebaseQueuedData && (typeof editing !== 'function' || !editing())) {
+      window.applyFirebaseData(window.firebaseQueuedData);
+      toast('다른 기기에서 바꾼 내용을 반영했어요'); // 필요시 알림 표시
+    }
+  }, 400); // 0.4초 대기 후 실행하여 포커스 이동 시 충돌 방지
+});
 };
 
 /* ================= 유틸 ================= */
