@@ -1173,13 +1173,31 @@ function load(){
 }
 function merge(o){var d=defaults();if(o.budget&&o.budget.months)Object.keys(o.budget.months).forEach(function(k){var m=o.budget.months[k];if(!Array.isArray(m.items))m.items=[];if(Array.isArray(m.tx)&&m.tx.length){var sm={};m.tx.forEach(function(t){sm[t.item]=(sm[t.item]||0)+n(t.amount)});m.items.forEach(function(it){if(it.act==null||it.act==='')it.act=sm[it.id]||''})}m.tx=[]});if(!Array.isArray(o.goals))o.goals=[];if(!Array.isArray(o.snaps))o.snaps=[];if(!o.budget||(!o.budget.months&&!Array.isArray(o.budget.revs)))o.budget=defaultBudget();if(!Array.isArray(o.budget.revs)){var ks=Object.keys(o.budget.months||{}).sort();o.budget={v:2,cur:'',revs:ks.map(function(k){var p=k.split('-');return {id:'r-'+k,date:k+'-01',label:p[0]+'년 '+(+p[1])+'월',memo:'월별 기록에서 옮김',items:o.budget.months[k].items||[]}})};if(!o.budget.revs.length)o.budget=defaultBudget()}if(!o.rebal)o.rebal=defaultRebal(false);else{var dr=defaultRebal(false);Object.keys(dr).forEach(function(k){if(o.rebal[k]==null)o.rebal[k]=dr[k]});o.rebal.target=Object.assign({},dr.target,o.rebal.target||{});if(!Array.isArray(o.rebal.hist))o.rebal.hist=[]}if(!o.pf)o.pf=defaultPf(false);var dp=defaultPf(false);['accounts','holdings','others'].forEach(function(k){if(!Array.isArray(o.pf[k]))o.pf[k]=[]});o.pf.macro=Object.assign({},dp.macro,o.pf.macro||{});o.pf.ai=Object.assign({},dp.ai,o.pf.ai||{});o.pf.profiles=Object.assign({},dp.profiles,o.pf.profiles||{});['fx','priceDate','eqDomestic'].forEach(function(k){if(o.pf[k]==null)o.pf[k]=dp[k]});o.v=3;o.settings=Object.assign({},d.settings,o.settings||{});['people','assets','incomes','gifts'].forEach(function(k){if(!Array.isArray(o[k]))o[k]=d[k]});return o}
 var saveT;
-function saveLocal(){
-  clearTimeout(saveT);
-  saveT=setTimeout(function(){
-    try{localStorage.setItem(STORE,JSON.stringify(S));try{localStorage.removeItem('family-pension-v2')}catch(e2){}$('status').textContent='자동 저장됨 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}
-    catch(e){$('status').textContent='이 브라우저는 자동 저장을 막았어요. 데이터 내보내기로 백업하세요.'}
-  },250);
-}
+function saveLocal(){  
+ clearTimeout(saveT);  
+ saveT=setTimeout(function(){  
+ try{localStorage.setItem(STORE,JSON.stringify(S));try{localStorage.removeItem('family-pension-v2')}catch(e2){}$('status').textContent='자동 저장됨 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}  
+ catch(e){$('status').textContent='이 브라우저는 자동 저장을 막았어요. 데이터 내보내기로 백업하세요.'}  
+ 
+ // Firebase에 데이터 전송 (연동이 완료된 상태일 때만)
+ if(window.saveToFirebase) {
+   window.saveToFirebase(JSON.parse(JSON.stringify(S)));
+ }
+ },250);  
+}  
+
+// Firebase에서 변경된 데이터를 수신하면 화면에 바로 반영하는 함수
+window.applyFirebaseData = function(data) {
+  S = merge(JSON.parse(JSON.stringify(data)));
+  applySync();
+  renderInputs();
+  renderPfInputs();
+  renderResults();
+  renderPfResults();
+  renderBudget();
+  renderGoals();
+  buildNav(curView);
+};
 
 /* ================= 유틸 ================= */
 function $(id){return document.getElementById(id)}
@@ -3016,14 +3034,9 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
 })();
 </script>
 <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+  import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js";
 
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
   const firebaseConfig = {
     apiKey: "AIzaSyB9TgiAwsTSjNykHetMhiUAjiO5bnsMrB8",
     authDomain: "myasset-db.firebaseapp.com",
@@ -3035,31 +3048,42 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
     measurementId: "G-S4TFFHLD8H"
   };
 
-// 3. Firebase 초기화
+  // Firebase 초기화
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
-  const dataRef = ref(db, 'pensionData'); // Realtime Database 저장 위치 키 이름
+  const dataRef = ref(db, 'pensionData');
+  
+  let isWriting = false;
 
-  // 4. [수신] 다른 기기나 내가 데이터를 변경했을 때 화면 자동 실시간 동기화
+  // [수신] 다른 기기에서 데이터가 변경되었을 때
   onValue(dataRef, (snapshot) => {
     const data = snapshot.val();
-    if (data) {
-      // Firebase에서 가져온 최신 데이터를 화면(UI)이나 입력 폼에 바인딩
-      console.log("실시간 데이터 수신:", data);
-      // 예: renderDataToUI(data); 또는 loadDataIntoApp(data);
+    // 내가 쓰고 있는 도중이 아닐 때만 화면에 반영 (화면 튕김 방지)
+    if (data && !isWriting) {
+      if (window.applyFirebaseData) {
+        window.applyFirebaseData(data);
+        const s = document.getElementById('status');
+        if (s) s.textContent = 'Firebase 동기화 완료';
+      }
     }
   });
 
-  // 5. [송신] 화면에서 데이터를 수정하거나 저장 버튼을 눌렀을 때 Firebase로 데이터 전송
+  // [송신] 로컬에서 데이터가 변경되어 Firebase로 저장할 때
   window.saveToFirebase = function(payload) {
+    isWriting = true; // 저장 중 플래그 활성화
     set(dataRef, payload)
       .then(() => {
-        console.log("Firebase 동기화 성공!");
+        const s = document.getElementById('status');
+        if (s) s.textContent = 'Firebase 클라우드 저장됨 · ' + new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
       })
       .catch((error) => {
         console.error("Firebase 동기화 실패:", error);
+      })
+      .finally(() => {
+        // 저장이 완료된 후 잠시 대기했다가 수신 락 해제
+        setTimeout(() => { isWriting = false; }, 1000); 
       });
   };
-</script>  
+</script> 
 </body>
 </html>
