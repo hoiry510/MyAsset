@@ -703,7 +703,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
     <p class="caption" id="q-status" role="status" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
-        <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 일반 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키 (Encoding 또는 Decoding)"><span class="hint">보통주는 금융위원회_주식시세정보, ETF·ETN·ELW는 금융위원회_증권상품시세정보 API를 사용합니다. 두 서비스의 활용신청을 확인해 주세요. Encoding/Decoding 키 형식을 감지해 URL 인코딩을 처리합니다.</span></div>
+        <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 일반 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키 (Encoding 또는 Decoding)"><span class="hint">보통주는 금융위원회_주식시세정보, ETF·ETN·ELW는 금융위원회_증권상품시세정보 API를 사용합니다. 두 서비스의 활용신청을 확인해 주세요. Encoding/Decoding 키를 모두 지원합니다. 조회 시 현재 입력란의 키를 직접 사용하므로 키를 변경한 뒤 바로 조회해도 이전 저장값이 사용되지 않습니다.</span></div>
         <div class="f"><label for="q-us">해외 종목·환율: Twelve Data API 키</label><input id="q-us" type="password" autocomplete="off" placeholder="API key"><span class="hint">twelvedata.com 무료 가입 → Dashboard의 API Keys. 무료는 하루 800건, 분당 8건</span></div>
         <div class="f chk"><input type="checkbox" id="q-auto" checked><label for="q-auto">파일을 열 때 자동으로 시세 갱신 (3시간마다)</label></div>
       </div>
@@ -2764,7 +2764,12 @@ function qSetInput(id,value){var el=$(id);if(el)el.value=value}
 // 전체 시세 동기화. 실패한 종목은 기존 가격과 종목명을 변경하지 않는다.
 async function qRun(only,quiet){
   if(qBusy)return;
-  var keys=qKeys(),krKey=String(keys.kr||'').trim(),usKey=String(keys.us||'').trim();
+  // 입력란의 최신 값을 우선 사용합니다. 이전 버전/다른 파일에서 저장된 localStorage 키가
+  // 남아 있으면 화면에는 새 키가 보여도 과거 키로 호출되는 상황을 방지합니다.
+  var keys=qKeys(),krInput=$('q-kr'),usInput=$('q-us');
+  var krKey=String(krInput?krInput.value:(keys.kr||'')).trim();
+  var usKey=String(usInput?usInput.value:(keys.us||'')).trim();
+  keys.kr=krKey;keys.us=usKey;qSetKeys(keys);
   if(navigator.onLine===false){qStatus('오프라인 상태입니다. 현재가와 환율을 직접 입력해 주세요.','warn');return}
   var hs=(S.pf.holdings||[]).filter(function(h){return (!only||h.id===only)&&!!qMarket(h)});
   var krCodes=[],usCodes=[],seenKr={},seenUs={},errs=[],updated=0,fxUpdated=false,got={};
@@ -2817,8 +2822,9 @@ function quoteInit(){
   var k=qKeys(),a=$('q-kr'),b=$('q-us'),c=$('q-auto');
   if(a)a.value=k.kr||'';if(b)b.value=k.us||'';if(c)c.checked=k.auto!==false;
   function store(){var o=qKeys();o.kr=$('q-kr')?$('q-kr').value.trim():'';o.us=$('q-us')?$('q-us').value.trim():'';o.auto=$('q-auto')?$('q-auto').checked:true;qSetKeys(o);qHint()}
-  [a,b,c].forEach(function(el){if(el)el.addEventListener('change',store)});
-  var btn=$('q-run');if(btn)btn.addEventListener('click',function(){qRun(null,false)});
+  [a,b,c].forEach(function(el){if(el){el.addEventListener('change',store);if(el.type==='password')el.addEventListener('input',store)}});
+  // 버튼을 누르는 순간 키 입력값을 먼저 저장하여 blur/change 이벤트 순서에 의존하지 않습니다.
+  var btn=$('q-run');if(btn)btn.addEventListener('click',function(){store();qRun(null,false)});
   qHint();
   var last=0;try{last=+localStorage.getItem(QAUTO)||0}catch(e){}
   if(k.auto!==false&&(k.kr||k.us)&&Date.now()-last>3*3600e3)setTimeout(function(){qRun(null,true)},1500);
