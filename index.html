@@ -3032,21 +3032,18 @@ initCloud();
 quoteInit();
 if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget')showView('bud');else if(location.hash==='#guide')showView('guide');else buildNav('main');
 })();
-// [최종본] 종목코드(code) 입력 시 ETF/주식 종목명 및 현재가 자동 연동
 document.addEventListener('change', async function(e) {
   const k = e.target.getAttribute('data-k');
   
-  // 1. 실제 입력칸 속성에 맞춰 조건 변경: 'hold'로 시작하고 'code'로 끝나는지 확인
   if (k && k.startsWith('hold.') && k.endsWith('.code')) {
     const ticker = e.target.value.trim().toUpperCase();
     if (!ticker) return;
 
-    // 'hold.94t7ib7.code' 에서 고유 ID('94t7ib7') 추출
     const parts = k.split('.');
     const id = parts[1]; 
     
-    const statusEl = document.getElementById('status');
-    if (statusEl) statusEl.textContent = `[${ticker}] 종목 정보 및 시세 조회 중...`;
+    console.log(`\n--- [디버그 시작] 종목코드: ${ticker}, ID: ${id} ---`);
+    console.log(`[디버그 1] 현재 S.hold 상태:`, S.hold);
 
     try {
       let fetchedPrice = null;
@@ -3055,10 +3052,12 @@ document.addEventListener('change', async function(e) {
       const isKR = /^[0-9]{6}\$/.test(ticker);
 
       if (isKR) {
-        // [국내] 네이버 증권 데이터 우회 스크래핑 (ETF 완벽 지원)
+        console.log(`[디버그 2] 네이버 증권 데이터 요청 중...`);
         const url = `https://finance.naver.com/item/main.naver?code=${ticker}`;
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
         const proxyData = await res.json();
+        
+        console.log(`[디버그 3] 데이터 응답 완료 (길이: ${proxyData.contents.length})`);
         
         const parser = new DOMParser();
         const doc = parser.parseFromString(proxyData.contents, "text/html");
@@ -3066,64 +3065,50 @@ document.addEventListener('change', async function(e) {
         const titleEl = doc.querySelector("title");
         if (titleEl) {
           fetchedName = titleEl.innerText.split(':')[0].trim();
+          console.log(`[디버그 4] 파싱된 종목명: ${fetchedName}`);
+        } else {
+          console.warn(`[디버그 4] 종목명을 찾을 수 없음`);
         }
 
         const priceEl = doc.querySelector(".no_today .blind");
         if (priceEl) {
           fetchedPrice = parseInt(priceEl.innerText.replace(/,/g, ''), 10);
-        }
-      } else {
-        // [해외] Twelve Data API (앱 설정에 입력한 키 연동)
-        const usKey = (S.settings && S.settings.twelveApiKey) ? S.settings.twelveApiKey : ""; 
-        if (usKey) {
-          const url = `https://api.twelvedata.com/price?symbol=${ticker}&apikey=${usKey}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          if (data.price) {
-            fetchedPrice = parseFloat(data.price);
-          }
+          console.log(`[디버그 5] 파싱된 현재가: ${fetchedPrice}`);
+        } else {
+          console.warn(`[디버그 5] 현재가를 찾을 수 없음`);
         }
       }
 
-      // 2. 실제 자산이 저장되는 S.hold 배열에서 항목 찾기
       const holdArray = S.hold || [];
       const item = holdArray.find(p => String(p.id) === String(id));
       
       if (item) {
-        let msg = `[${ticker}]`;
+        console.log(`[디버그 6] 업데이트 전 항목 데이터:`, JSON.parse(JSON.stringify(item)));
         
-        // 종목명 업데이트
-        if (fetchedName) {
-          item.name = fetchedName;
-          msg += ` ${fetchedName}`;
+        if (fetchedName) item.name = fetchedName;
+        // 주의: 이 앱에서 현재가를 저장하는 변수명이 price가 아니라면 여기가 문제일 수 있음
+        if (fetchedPrice !== null) item.price = fetchedPrice; 
+        
+        console.log(`[디버그 7] 업데이트 후 항목 데이터:`, item);
+        
+        if (typeof saveLocal === 'function') {
+          saveLocal();
+          console.log(`[디버그 8] saveLocal() 호출 성공`);
         }
         
-        // 현재가 업데이트
-        if (fetchedPrice !== null) {
-          item.price = fetchedPrice; 
-          msg += ` 현재가 ${fetchedPrice.toLocaleString()}`;
-        }
-        
-        if (fetchedName || fetchedPrice !== null) {
-          if (statusEl) statusEl.textContent = msg + ` 자동 입력 완료`;
-          
-          // 화면 새로고침 및 Firebase 동기화 (기존 앱의 렌더링 함수들 호출)
-          if (typeof saveLocal === 'function') saveLocal();
-          if (typeof renderAll === 'function') {
-            renderAll();
-          } else {
-            // renderAll이 없을 경우를 대비한 개별 새로고침
-            if (typeof buildInputs === 'function') buildInputs();
-            if (typeof buildResults === 'function') buildResults();
-          }
+        if (typeof renderAll === 'function') {
+          renderAll();
+          console.log(`[디버그 9] renderAll() 갱신 성공`);
+        } else {
+          console.warn(`[디버그 9] renderAll 함수가 없음! 화면 갱신 실패 가능성`);
         }
       } else {
-        console.error(`ID가 ${id}인 항목을 S.hold 배열에서 찾을 수 없습니다.`);
+        console.error(`[디버그 6] ID가 ${id}인 항목을 배열에서 찾지 못했습니다.`);
       }
     } catch (error) {
-      console.error("가격 자동 조회 에러:", error);
-      if (statusEl) statusEl.textContent = `[${ticker}] 통신 에러가 발생했습니다.`;
+      console.error("[디버그 에러 발생]:", error);
     }
+    console.log(`--- [디버그 종료] ---\n`);
   }
 });
 </script>
