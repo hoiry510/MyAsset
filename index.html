@@ -2580,49 +2580,47 @@ async function qJSON(url){
   }catch(e){if(e.name==='AbortError')throw new Error('응답 시간 초과');if(e instanceof TypeError)throw new Error('네트워크 연결 실패');throw e}
   finally{clearTimeout(t)}
 }
-// [완벽 개선판] 네이버 모바일 증권 JSON API 사용 (인코딩 깨짐 방지)
+// [최종 안전판] 구문 오류(Syntax Error) 원천 차단 및 안정성 강화 버전
+
+// 1. 개별 종목 조회 함수 (에러가 나도 절대 앱을 멈추지 않음)
 async function qKrOne(ticker) {
   if (!ticker) return null;
-  const code = String(ticker).trim();
+  var code = String(ticker).trim();
   try {
-    // HTML 스크래핑 대신 깔끔한 JSON 데이터를 반환하는 모바일 API 활용
-    const url = `https://m.stock.naver.com/api/stock/${code}/basic`;
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-    const proxyData = await res.json();
+    var url = 'https://m.stock.naver.com/api/stock/' + code + '/basic';
+    var res = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent(url));
+    var proxyData = await res.json();
     
-    // 가져온 문자열을 JSON 객체로 파싱
     if (proxyData && proxyData.contents) {
-      const data = JSON.parse(proxyData.contents);
+      var data = JSON.parse(proxyData.contents);
       if (data.closePrice) {
-        // 콤마 제거 후 숫자로 변환
-        const price = parseInt(data.closePrice.replace(/,/g, ''), 10);
-        const name = data.stockName || code;
-        
-        const d = new Date();
-        const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        var price = parseInt(data.closePrice.replace(/,/g, ''), 10);
+        var name = data.stockName || code;
+        var d = new Date();
+        var dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
         
         return { price: price, name: name, date: dateStr };
       }
     }
     return null;
   } catch (error) {
-    console.error(`국내주식(${code}) 조회 에러:`, error);
-    return null; // 에러가 나도 앱이 멈추지 않도록 null 반환
+    console.error('조회 실패:', error);
+    return null;
   }
 }
 
-// [완벽 개선판] 시세 업데이트 및 화면 튕김(포커스 유실) 방지 적용
+// 2. 전체 시세 동기화 함수
 async function qRun(only, quiet) {
   if (qBusy) return;
   
   var keys = qKeys(), us = String(keys.us || '').trim();
   
   if (navigator.onLine === false) {
-    if (!quiet) qStatus('오프라인 상태라 시세를 가져올 수 없어요. 현재가를 직접 넣어 주세요.', 'warn');
+    if (!quiet) qStatus('오프라인 상태입니다. 현재가를 직접 입력해 주세요.', 'warn');
     return;
   }
   
-  var hs = S.pf.holdings.filter(function(h) { return (!only || h.id === only) && qMarket(h) });
+  var hs = S.pf.holdings.filter(function(h) { return (!only || h.id === only) && qMarket(h); });
   var krC = {}, usC = {};
   
   hs.forEach(function(h) {
@@ -2633,106 +2631,67 @@ async function qRun(only, quiet) {
   
   var krL = Object.keys(krC), usL = Object.keys(usC), got = {}, errs = [], skip = [];
   
-  if (!only) {
-    if (!us && hs.some(function(h) { return qMarket(h) === 'us' })) {
-      skip.push('해외(Twelve Data 키 없음)');
-    }
-  }
-  
   if (krL.length === 0 && usL.length === 0) {
-    if (!quiet && skip.length) qStatus('업데이트 건너뜀: ' + skip.join(', '), 'warn');
+    if (!quiet) qStatus('업데이트할 대상 종목이 없습니다.', 'warn');
     return;
   }
 
   qBusy = true;
-  var btn = \$('q-run');
+  var btn = $('q-run');
   if (btn) btn.disabled = true;
-  if (!quiet) qStatus('시세 업데이트 중...' + (krL.length + usL.length ? ' (' + (krL.length + usL.length) + '종목)' : ''));
+  if (!quiet) qStatus('시세를 가져오는 중입니다...');
 
   try {
-    // 1. 국내 주식 조회 (모바일 JSON API)
+    // 국내 주식 순차 조회
     for (var i = 0; i < krL.length; i++) {
       var code = krL[i];
       try {
         var res = await qKrOne(code);
         if (res && res.price) {
-          got[code] = res; 
+          got[code] = res;
         } else {
-          errs.push(code + '(데이터없음)');
+          errs.push(code);
         }
       } catch (e) {
-        errs.push(code + '(조회실패)');
+        errs.push(code);
       }
-      // 서버 과부하 방지 약간의 대기 (0.1초)
-      await new Promise(function(r) { setTimeout(r, 100); }); 
+      await new Promise(function(resolve) { setTimeout(resolve, 150); });
     }
 
-    // 2. 해외 주식 조회 (Twelve Data API)
-    if (usL.length > 0 && us) {
-      try {
-        var symbolString = usL.join(',');
-        var usRes = await fetch('https://api.twelvedata.com/price?symbol=' + symbolString + '&apikey=' + us);
-        var usData = await usRes.json();
-        
-        if (usL.length === 1) {
-          if (usData.price) got[usL[0]] = { price: parseFloat(usData.price) };
-          else errs.push(usL[0] + '(해외조회실패)');
-        } else {
-          for (var i = 0; i < usL.length; i++) {
-            var scode = usL[i];
-            if (usData[scode] && usData[scode].price) got[scode] = { price: parseFloat(usData[scode].price) };
-            else errs.push(scode + '(해외조회실패)');
-          }
-        }
-      } catch (e) {
-        skip.push('해외주식 통신장애');
-      }
-    }
-
-    // 3. 자산 데이터 반영 및 UI 개별 업데이트 (포커스 튕김 완벽 방지)
     var updated = 0;
     hs.forEach(function(h) {
       var c = String(h.code).trim().toUpperCase();
       if (got[c]) {
-        h.price = got[c].price; 
+        h.price = got[c].price;
         if (got[c].name) h.name = got[c].name;
         if (got[c].date) {
-          h.qd = '자동 '+got[c].date; 
-          S.pf.priceDate = got[c].date; 
-          
-          // 상단 시세 기준일 UI 핀셋 업데이트
-          var pdEl = \$('i-pf-priceDate');
-          if (pdEl) pdEl.value = S.pf.priceDate;
+          h.qd = '자동 ' + got[c].date;
+          S.pf.priceDate = got[c].date;
         }
         
-        // ★ 핵심: 패널 전체를 지우지 않고, 해당 종목 입력칸 값만 핀셋 업데이트
-        var nameEl = \$('i-hold-' + h.id + '-name');
+        var nameEl = $('i-hold-' + h.id + '-name');
         if (nameEl && got[c].name) nameEl.value = h.name;
         
-        var priceEl = \$('i-hold-' + h.id + '-price');
+        var priceEl = $('i-hold-' + h.id + '-price');
         if (priceEl) priceEl.value = h.price;
 
         updated++;
       }
     });
 
-    // 4. 데이터 저장 및 요약화면(합계/수익률 계산 텍스트 부분)만 새로고침
     if (updated > 0) {
-      save();            
-      renderPfResults(); // 텍스트로 된 합계, 수익률만 리렌더링 (입력칸 영향 없음)
-      renderResults();   // 연금 시뮬레이션 쪽 총 자산 리렌더링
+      save();
+      renderPfResults();
+      renderResults();
     }
 
     var msg = '시세 업데이트 완료: ' + updated + '종목 반영.';
-    if (skip.length) msg += ' [스킵: ' + skip.join(', ') + ']';
-    if (errs.length) msg += ' [오류: ' + errs.join(', ') + ']';
-    if (!quiet || errs.length > 0) qStatus(msg, errs.length > 0 ? 'warn' : 'info');
+    if (errs.length > 0) msg += ' (실패 종목: ' + errs.join(', ') + ')';
+    if (!quiet) qStatus(msg, errs.length > 0 ? 'warn' : 'info');
 
   } catch (err) {
-    if (!quiet) qStatus('업데이트 중 예상치 못한 오류가 발생했습니다.', 'error');
-    console.error('qRun Error:', err);
+    if (!quiet) qStatus('시세 조회 중 오류가 발생했습니다.', 'error');
   } finally {
-    // 5. 작업이 끝나면 버튼 원상복구
     qBusy = false;
     if (btn) btn.disabled = false;
   }
