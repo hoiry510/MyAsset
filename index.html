@@ -2626,55 +2626,136 @@ async function qKrOne(ticker) {
     return null;
   }
 }
-async function qRun(only,quiet){
-  if(qBusy)return;
-  var keys=qKeys(),kr=qKr(keys.kr),us=String(keys.us||'').trim();
-  if(!kr&&!us){if(!quiet){qStatus('먼저 아래 「시세 API 키 설정」에 키를 넣어 주세요.','warn');var d=$('q-keys');if(d)d.open=true}return}
-  if(navigator.onLine===false){if(!quiet)qStatus('오프라인 상태라 시세를 가져올 수 없어요. 현재가를 직접 넣어 주세요.','warn');return}
-  var hs=S.pf.holdings.filter(function(h){return (!only||h.id===only)&&qMarket(h)});
-  var krC={},usC={};
-  hs.forEach(function(h){var c=String(h.code).trim().toUpperCase(),mk=qMarket(h);if(mk==='kr'&&kr)krC[c]=1;if(mk==='us'&&us)usC[c]=1});
-  var krL=Object.keys(krC),usL=Object.keys(usC),got={},errs=[],skip=[],fx=null,credits=0;
-  if(!only){if(!kr&&hs.some(function(h){return qMarket(h)==='kr'}))skip.push('국내(공공데이터 키 없음)');if(!us&&hs.some(function(h){return qMarket(h)==='us'}))skip.push('해외(Twelve Data 키 없음)')}
-  qBusy=true;var btn=$('q-run');if(btn)btn.disabled=true;
-  try{
-    for(var i=0;i<krL.length;i++){
-      qStatus('국내 시세 가져오는 중… '+(i+1)+'/'+krL.length);
-      try{var q=await qKrOne(krL[i],kr);if(q)got[krL[i]]=q;else errs.push(krL[i]+' 시세 없음')}
-      catch(e){errs.push(e.message);if(/인증키|공공데이터:|네트워크/.test(e.message))break}
+async function qRun(only, quiet) {
+  if (qBusy) return;
+  
+  // 1. 설정된 키 가져오기 (해외 주식용 Twelve Data API 키)
+  var keys = qKeys(), us = String(keys.us || '').trim();
+  
+  // 2. 오프라인 체크
+  if (navigator.onLine === false) {
+    if (!quiet) qStatus('오프라인 상태라 시세를 가져올 수 없어요. 현재가를 직접 넣어 주세요.', 'warn');
+    return;
+  }
+  
+  // 3. 업데이트 대상 종목 필터링
+  var hs = S.pf.holdings.filter(function(h) { return (!only || h.id === only) && qMarket(h) });
+  var krC = {}, usC = {};
+  
+  // 4. 국내/해외 대상 분류 (국내 주식은 API 키 검사 없이 무조건 대기열에 추가)
+  hs.forEach(function(h) {
+    var c = String(h.code).trim().toUpperCase(), mk = qMarket(h);
+    if (mk === 'kr') krC[c] = 1; 
+    if (mk === 'us' && us) usC[c] = 1;
+  });
+  
+  var krL = Object.keys(krC), usL = Object.keys(usC), got = {}, errs = [], skip = [];
+  
+  // 5. 스킵 알림 (해외 주식 키가 없을 때만 경고)
+  if (!only) {
+    if (!us && hs.some(function(h) { return qMarket(h) === 'us' })) {
+      skip.push('해외(Twelve Data 키 없음)');
     }
-    if(us&&(usL.length||!only)){
-      var base='https://api.twelvedata.com/',ak='&apikey='+encodeURIComponent(us);
-      if(!only){
-        try{var r=await qJSON(base+'exchange_rate?symbol=USD/KRW'+ak);credits++;if(r&&r.rate)fx=Math.round(+r.rate*10)/10;else if(r&&r.message)errs.push('환율: '+String(r.message).slice(0,70))}catch(e){errs.push('환율: '+e.message)}
+  }
+  
+  // 업데이트할 종목이 아예 없으면 종료
+  if (krL.length === 0 && usL.length === 0) {
+    if (!quiet && skip.length) qStatus('업데이트 건너뜀: ' + skip.join(', '), 'warn');
+    return;
+  }
+
+  // 6. 업데이트 상태 시작
+  qBusy = true;
+  var btn = $('q-run');
+  if (btn) btn.disabled = true;
+  if (!quiet) qStatus('시세 업데이트 중...' + (krL.length + usL.length ? ' (' + (krL.length + usL.length) + '종목)' : ''));
+
+  try {
+    // ==========================================
+    // 7. 국내 주식 조회 (네이버 증권 스크래핑 - qKrOne)
+    // ==========================================
+    for (var i = 0; i < krL.length; i++) {
+      var code = krL[i];
+      try {
+        var res = await qKrOne(code);
+        if (res && res.price) {
+          got[code] = res.price;
+        } else {
+          errs.push(code + '(데이터없음)');
+        }
+      } catch (e) {
+        errs.push(code + '(조회실패)');
       }
-      for(var p=0;p<usL.length;){
-        var room=8-credits;
-        if(room<=0){for(var s=61;s>0;s--){qStatus('Twelve Data 무료 한도(분당 8건) 때문에 '+s+'초 기다리는 중…');await qWait(1000)}credits=0;room=8}
-        var chunk=usL.slice(p,p+room);p+=chunk.length;
-        qStatus('해외 시세 가져오는 중… '+Math.min(p,usL.length)+'/'+usL.length);
-        try{
-          var j=await qJSON(base+'quote?symbol='+encodeURIComponent(chunk.join(','))+ak);credits+=chunk.length;
-          if(j&&j.code&&j.status==='error')throw new Error('Twelve Data: '+String(j.message).slice(0,70));
-          chunk.forEach(function(c){var o=chunk.length===1?j:j[c];
-            if(o&&o.close&&o.status!=='error')got[c]={price:Math.round(+o.close*100)/100,name:o.name,date:qIso(o.datetime)};else errs.push(c+': '+String((o&&o.message)||'시세 없음').slice(0,60))});
-        }catch(e){errs.push(e.message);if(/API key|apikey|네트워크/i.test(e.message))break}
+      // 네이버 서버 차단 방지를 위해 조회 간 아주 짧은 딜레이(0.1초)를 줍니다.
+      await new Promise(r => setTimeout(r, 100)); 
+    }
+
+    // ==========================================
+    // 8. 해외 주식 조회 (Twelve Data API)
+    // ==========================================
+    if (usL.length > 0 && us) {
+      try {
+        // Twelve Data는 여러 종목을 콤마(,)로 묶어서 한 번에 호출 가능
+        var symbolString = usL.join(',');
+        var usRes = await fetch('https://api.twelvedata.com/price?symbol=' + symbolString + '&apikey=' + us);
+        var usData = await usRes.json();
+        
+        // 종목이 1개일 때와 여러 개일 때 API 응답 구조가 다름을 처리
+        if (usL.length === 1) {
+          if (usData.price) {
+            got[usL[0]] = parseFloat(usData.price);
+          } else {
+            errs.push(usL[0] + '(해외조회실패)');
+          }
+        } else {
+          for (var i = 0; i < usL.length; i++) {
+            var scode = usL[i];
+            if (usData[scode] && usData[scode].price) {
+              got[scode] = parseFloat(usData[scode].price);
+            } else {
+              errs.push(scode + '(해외조회실패)');
+            }
+          }
+        }
+      } catch (e) {
+        skip.push('해외주식 통신장애');
       }
     }
-    var n=0,last='';
-    S.pf.holdings.forEach(function(h){var c=String(h.code||'').trim().toUpperCase(),q=got[c];if(!q||!(q.price>0))return;
-      h.price=q.price;h.qd=q.date;n++;if(q.date>last)last=q.date;
-      var tk=tick(c);if(!h.name)h.name=tk?tk[1]:(q.name||'');if(!tk)h.cur=qMarket(h)==='kr'?'KRW':'USD'});
-    if(last&&(!S.pf.priceDate||last>S.pf.priceDate||!only))S.pf.priceDate=last;
-    if(fx)S.pf.fx=fx;
-    if(n||fx){save();renderPfInputs();renderPfResults();renderResults()}
-    try{localStorage.setItem(QAUTO,String(Date.now()))}catch(e){}
-    var msg=n?'✓ '+n+'개 종목 현재가를 갱신했어요'+(last?' (기준 '+last+')':''):'갱신된 종목이 없어요';
-    if(fx)msg+=' · 원/달러 '+fx.toLocaleString('ko-KR');
-    if(skip.length)msg+=' · 건너뜀: '+skip.join(', ');
-    if(errs.length)msg+=' · 확인 필요: '+errs.slice(0,3).join(' / ')+(errs.length>3?' 외 '+(errs.length-3)+'건':'');
-    qStatus(msg,errs.length&&!n?'crit':errs.length||skip.length?'warn':'ok');
-  }finally{qBusy=false;var b2=$('q-run');if(b2)b2.disabled=false}
+
+    // ==========================================
+    // 9. 조회된 가격을 자산 데이터에 반영
+    // ==========================================
+    var updated = 0;
+    hs.forEach(function(h) {
+      var c = String(h.code).trim().toUpperCase();
+      if (got[c]) {
+        h.price = got[c]; // 최신가 덮어쓰기
+        updated++;
+      }
+    });
+
+    // ==========================================
+    // 10. 데이터 저장 및 화면 리렌더링
+    // ==========================================
+    if (updated > 0) {
+      if (typeof S !== 'undefined' && typeof S.save === 'function') S.save(); 
+      if (typeof render === 'function') render();
+    }
+
+    // 11. 완료 메시지 조립 및 출력
+    var msg = '시세 업데이트 완료: ' + updated + '종목 반영.';
+    if (skip.length) msg += ' [스킵: ' + skip.join(', ') + ']';
+    if (errs.length) msg += ' [오류: ' + errs.join(', ') + ']';
+    if (!quiet || errs.length > 0) qStatus(msg, errs.length > 0 ? 'warn' : 'info');
+
+  } catch (err) {
+    if (!quiet) qStatus('업데이트 중 예상치 못한 오류가 발생했습니다.', 'error');
+    console.error('qRun Error:', err);
+  } finally {
+    // 12. 버튼 및 상태 초기화 (성공하든 실패하든 무조건 실행)
+    qBusy = false;
+    if (btn) btn.disabled = false;
+  }
 }
 function quoteInit(){
   var k=qKeys(),a=$('q-kr'),b=$('q-us'),c=$('q-auto');
