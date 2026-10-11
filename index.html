@@ -3046,40 +3046,6 @@ initCloud();
 quoteInit();
 if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget')showView('bud');else if(location.hash==='#guide')showView('guide');else buildNav('main');
 })();
-
-// ==========================================================
-// [네이버 증권 강제 우회 패치]
-// 기존의 에러 나던 qKrOne 함수를 완전히 덮어써서 무력화시킵니다.
-window.qKrOne = async function(arg) {
-  // 원래 함수가 종목코드를 문자열로 받는지, 객체로 받는지 모르므로 안전하게 추출
-  const code = (typeof arg === 'object' && arg.code) ? arg.code : 
-               (typeof arg === 'object' && arg.ticker) ? arg.ticker : arg;
-               
-  if (!code || !/^[0-9]{6}\$/.test(String(code))) return null;
-  
-  console.log(`[우회 작동] 공공데이터 무시 -> 네이버 증권에서 ${code} 조회 중...`);
-
-  try {
-    const url = `https://finance.naver.com/item/main.naver?code=${code}`;
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-    const proxyData = await res.json();
-    
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(proxyData.contents, "text/html");
-    
-    // 네이버 증권 현재가 파싱
-    const priceEl = doc.querySelector(".no_today .blind");
-    if (priceEl) {
-      const price = parseInt(priceEl.innerText.replace(/,/g, ''), 10);
-      console.log(`[우회 성공!] ${code} 현재가: ${price}원 가져옴`);
-      return price; // 원래 앱의 qRun 함수에게 정상적인 가격을 리턴해줌
-    }
-  } catch (error) {
-    console.error(`[우회 실패] ${code} 에러:`, error);
-  }
-  return null;
-};
-// ==========================================================
 </script>
   
 <script type="module">
