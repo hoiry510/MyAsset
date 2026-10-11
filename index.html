@@ -703,7 +703,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
     <p class="caption" id="q-status" role="status" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
-        <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 일반 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키 (Encoding 또는 Decoding)"><span class="hint">보통주는 금융위원회_주식시세정보, ETF·ETN·ELW는 금융위원회_증권상품시세정보 API를 사용합니다. 두 서비스의 활용신청을 확인해 주세요. Encoding/Decoding 키를 표준 URLSearchParams 방식으로 처리합니다. 조회 시 현재 입력란의 키를 직접 사용합니다.</span></div>
+        <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 일반 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키 (Encoding 또는 Decoding)"><span class="hint">보통주는 금융위원회_주식시세정보, ETF·ETN·ELW는 금융위원회_증권상품시세정보 API를 사용합니다. 두 서비스의 활용신청을 확인해 주세요. Decoding 키는 URLSearchParams로 전송하며, 포털 미리보기와 같은 XML 기본응답을 요청합니다. 조회 시 현재 입력란의 키를 직접 사용합니다.</span></div>
         <div class="f"><label for="q-us">해외 종목·환율: Twelve Data API 키</label><input id="q-us" type="password" autocomplete="off" placeholder="API key"><span class="hint">twelvedata.com 무료 가입 → Dashboard의 API Keys. 무료는 하루 800건, 분당 8건</span></div>
         <div class="f chk"><input type="checkbox" id="q-auto" checked><label for="q-auto">파일을 열 때 자동으로 시세 갱신 (3시간마다)</label></div>
       </div>
@@ -1739,7 +1739,7 @@ function renderKids(){
   }).join('');
 }
 
-/* 국내 인증키 전송: v5 표준 URLSearchParams 정규화 */
+/* 국내 인증키 전송: v6 표준 URLSearchParams + 포털 미리보기와 동일한 XML 요청 */
 /* ================= 이벤트 ================= */
 function setPath(path,val){
   var p=path.split('.'),coll=p[0];
@@ -2688,11 +2688,13 @@ async function qDataGoOne(url,key,code){
     // 인증키와 일반 파라미터를 모두 URLSearchParams로 직렬화해 수동 연결/이중 인코딩을 피합니다.
     var req=new URL(url.base);
     req.searchParams.set('serviceKey',candidates[i].value);
-    req.searchParams.set('numOfRows','100');
+    // 성공한 공공데이터포털 미리보기 요청과 최대한 동일하게: XML 기본 응답,
+    // 1행, 1페이지, 종목코드만 지정합니다. JSON resultType은 보내지 않습니다.
+    // 응답 XML은 qXmlToJson()에서 JSON과 동일한 내부 형태로 변환합니다.
+    req.searchParams.set('numOfRows','1');
     req.searchParams.set('pageNo','1');
-    req.searchParams.set('resultType','json');
     req.searchParams.set(url.codeParam||'srtnCd',code);
-    attempted.push(candidates[i].mode);
+    attempted.push(candidates[i].mode+' + XML 기본응답');
     try{
       var data=await qJSON(req.toString(),'data');
       qCheckDataGo(data);
