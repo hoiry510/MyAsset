@@ -2581,7 +2581,8 @@ async function qJSON(url){
   }catch(e){if(e.name==='AbortError')throw new Error('응답 시간 초과');if(e instanceof TypeError)throw new Error('네트워크 연결 실패');throw e}
   finally{clearTimeout(t)}
 }
-// [새로 교체된 국내주식/ETF 네이버 증권 스크래핑 함수]
+
+// [새로 교체된 국내주식/ETF 네이버 증권 스크래핑 함수 - 최종 완벽판]
 async function qKrOne(ticker) {
   if (!ticker) return null;
   const code = String(ticker).trim();
@@ -2596,12 +2597,26 @@ async function qKrOne(ticker) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(proxyData.contents, "text/html");
     
-    // 현재가(종가) 추출
+    // 1. 현재가 파싱
     const priceEl = doc.querySelector(".no_today .blind");
     if (priceEl) {
       const price = parseInt(priceEl.innerText.replace(/,/g, ''), 10);
-      console.log(`[조회 성공] ${code} 현재가: ${price}원`);
-      return price;
+      
+      // 2. 종목명 파싱
+      let name = code;
+      const titleEl = doc.querySelector("title");
+      if (titleEl) {
+        name = titleEl.innerText.split(':')[0].trim();
+      }
+
+      // 3. 오늘 날짜(기준일) 생성
+      const d = new Date();
+      const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+
+      console.log(`[조회 성공] ${name}(${code}): ${price}원`);
+      
+      // 💡 [핵심 수정] 단순 숫자가 아닌, 앱이 읽을 수 있는 객체 형태로 반환!
+      return { price: price, name: name, date: dateStr };
     } else {
       console.warn(`[조회 실패] ${code}의 가격 정보를 찾을 수 없습니다.`);
       return null;
