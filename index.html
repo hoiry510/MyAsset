@@ -700,14 +700,14 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
   <div class="card" style="margin-top:12px"><div class="fields" id="pf-global"></div></div>
   <div class="card" style="margin-top:12px" id="quote-card">
     <div class="card-head"><h3>시세 자동 조회</h3><button class="btn primary" type="button" id="q-run">지금 시세 가져오기</button></div>
-    <p class="caption" id="q-status" role="status" aria-live="polite"></p>
+    <p class="caption" id="q-status" role="status" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
-        <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키"><span class="hint">data.go.kr 회원가입 → 「금융위원회_주식시세정보」와 「금융위원회_증권상품시세정보」 활용신청(자동 승인) → 마이페이지의 일반 인증키</span></div>
+        <div class="f"><label for="q-kr">국내 종목·ETF: 별도 API 키 불필요</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키"><span class="hint">네이버 모바일 주식 시세 API를 공개 프록시를 통해 조회합니다. 프록시 정책·접속 상태에 따라 실패할 수 있습니다.</span></div>
         <div class="f"><label for="q-us">해외 종목·환율: Twelve Data API 키</label><input id="q-us" type="password" autocomplete="off" placeholder="API key"><span class="hint">twelvedata.com 무료 가입 → Dashboard의 API Keys. 무료는 하루 800건, 분당 8건</span></div>
         <div class="f chk"><input type="checkbox" id="q-auto" checked><label for="q-auto">파일을 열 때 자동으로 시세 갱신 (3시간마다)</label></div>
       </div>
-      <p class="caption">키는 이 기기의 브라우저에만 저장되고, 데이터 내보내기 파일과 공유 저장소에는 들어가지 않습니다. 시세를 조회할 때 외부로 나가는 정보는 종목코드뿐이고 수량·매입가·금액은 전송되지 않습니다. 국내 시세는 <b>전 영업일 종가</b>(다음 영업일 오후 1시쯤 갱신), 해외는 최근 거래가입니다. claude.ai 공유 링크 화면에서는 외부 접속이 막혀 동작하지 않을 수 있어요.</p>
+      <p class="caption">키는 이 기기의 브라우저에만 저장되고, 데이터 내보내기 파일과 공유 저장소에는 들어가지 않습니다. 시세를 조회할 때 외부로 나가는 정보는 종목코드뿐이고 수량·매입가·금액은 전송되지 않습니다. 국내 시세는 <b>전 영업일 종가</b>(다음 영업일 오후 1시쯤 갱신), 해외는 최근 거래가입니다. 브라우저가 CORS로 외부 API를 차단하면 localhost 또는 HTTPS 웹서버에서 열어 주세요. 공개 배포용이라면 API 키를 서버 측에 두는 방식을 권장합니다.</p>
     </details>
   </div>
 </section>
@@ -1004,7 +1004,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
       <tr><td class="who">공공데이터: … 접근 거부 / 등록되지 않은 서비스키</td><td>키 오타, 활용신청 누락, 승인 직후 전파 지연입니다. 두 서비스 모두 신청했는지 확인하고 1~2시간 뒤 다시 시도하세요.</td></tr>
       <tr><td class="who">○○○○○○ 시세 없음</td><td>최근 2주 거래가 없거나(거래정지·신규상장) 코드가 틀린 경우입니다. 현재가를 직접 넣으세요.</td></tr>
       <tr><td class="who">Twelve Data: … API key</td><td>해외 키가 틀렸습니다. 다시 복사해 넣으세요.</td></tr>
-      <tr><td class="who">네트워크 연결 실패 / 오프라인 상태</td><td>인터넷이 끊겼거나 회사망·공유 링크 화면에서 외부 접속이 막힌 경우입니다. 현재가는 직접 넣으면 됩니다.</td></tr>
+      <tr><td class="who">네트워크 연결 실패 / 오프라인 상태</td><td>인터넷이 끊겼거나 브라우저의 CORS 정책이 API 접속을 차단한 경우일 수 있습니다. HTML 파일을 직접 열었다면 localhost 또는 HTTPS 웹서버에서 실행해 보세요. 그래도 안 되면 현재가를 직접 넣으면 됩니다.</td></tr>
     </tbody>
   </table></div>
   <p class="caption">부동산 시세는 자동으로 가져오지 않습니다. KB부동산 시세나 국토교통부 실거래가 공개시스템에서 확인해 넣으세요.</p>
@@ -2560,146 +2560,236 @@ document.addEventListener('click',function(e){
 });
 
 /* ================= 시세 자동 조회 =================
-   국내(6자리 코드): 금융위원회 주식시세정보·증권상품시세정보 (공공데이터포털, 전 영업일 종가)
-   해외(티커)·환율: Twelve Data (무료 플랜 분당 8건)
-   키는 이 기기 localStorage에만 저장하고 S(내보내기·공유 저장소)에는 넣지 않는다. 외부로는 종목코드만 나간다. */
-var QKEY='family-pension-quotekeys',QAUTO='family-pension-quoteat',qBusy=false;
+   국내 주식: 금융위원회 주식시세정보 API, ETF/ETN/ELW는 증권상품시세정보 API
+   해외 주식·ETF 및 USD/KRW: Twelve Data
+   시세 API 키는 이 기기의 localStorage에만 저장한다. 실패한 조회는 기존 가격을 덮어쓰지 않는다. */
+var QKEY='family-pension-quotekeys', QAUTO='family-pension-quoteat', QUSLAST='family-pension-twelve-last-request', qBusy=false, qLastUsRequest=0;
 function qKeys(){try{return JSON.parse(localStorage.getItem(QKEY)||'{}')||{}}catch(e){return {}}}
 function qSetKeys(o){try{localStorage.setItem(QKEY,JSON.stringify(o))}catch(e){}}
 function qKr(k){k=String(k||'').trim();if(k.indexOf('%')>=0){try{k=decodeURIComponent(k)}catch(e){}}return k}
+function qServiceKey(k){
+  var s=String(k||'').trim();
+  // data.go.kr의 Encoding 키와 Decoding 키 모두를 입력받을 수 있다.
+  for(var i=0;i<2&&/%[0-9a-f]{2}/i.test(s);i++){try{s=decodeURIComponent(s)}catch(e){break}}
+  return s;
+}
 function qYmd(d){return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')}
-function qIso(s){s=String(s||'');return /^\d{8}$/.test(s)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6):s.slice(0,10)}
+function qIso(s){s=String(s||'').trim();return /^\d{8}$/.test(s)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6):(/^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):'')}
 function qMarket(h){var c=String(h.code||'').trim().toUpperCase();if(/^[0-9][0-9A-Z]{5}$/.test(c))return 'kr';if(/^[A-Z][A-Z0-9.\-]{0,9}$/.test(c))return 'us';return ''}
 function qStatus(t,kind){var el=$('q-status');if(el){el.textContent=t;el.className='caption'+(kind?' q-'+kind:'')}}
 function qWait(ms){return new Promise(function(r){setTimeout(r,ms)})}
-async function qJSON(url){
-  var c=new AbortController(),t=setTimeout(function(){c.abort()},15000);
+function qNumber(v){if(v==null)return NaN;var s=String(v).trim().replace(/,/g,'');if(!s||s==='-'||s==='N/A')return NaN;var x=Number(s);return Number.isFinite(x)?x:NaN}
+function qXmlToJson(tx){
+  if(typeof DOMParser==='undefined')return null;
   try{
-    var r=await fetch(url,{signal:c.signal}),tx=await r.text();
-    try{return JSON.parse(tx)}catch(e){throw new Error(/SERVICE_KEY|SERVICE KEY/.test(tx)?'공공데이터 인증키 오류':'응답을 읽을 수 없음 ('+r.status+')')}
-  }catch(e){if(e.name==='AbortError')throw new Error('응답 시간 초과');if(e instanceof TypeError)throw new Error('네트워크 연결 실패');throw e}
-  finally{clearTimeout(t)}
+    var doc=(new DOMParser()).parseFromString(tx,'application/xml');
+    if(doc.getElementsByTagName('parsererror').length)return null;
+    function textOf(root,tag){var el=root.getElementsByTagName(tag)[0];return el?String(el.textContent||'').trim():''}
+    var errCode=textOf(doc,'returnReasonCode')||textOf(doc,'resultCode');
+    var errMsg=textOf(doc,'returnAuthMsg')||textOf(doc,'returnReason')||textOf(doc,'resultMsg');
+    var items=[];
+    Array.prototype.forEach.call(doc.getElementsByTagName('item'),function(el){var obj={};Array.prototype.forEach.call(el.children,function(ch){obj[ch.tagName]=String(ch.textContent||'').trim()});items.push(obj)});
+    if(items.length)return {response:{header:{resultCode:errCode||'00',resultMsg:errMsg||'NORMAL SERVICE.'},body:{items:{item:items}}}};
+    if(errCode||errMsg)return {OpenAPI_ServiceResponse:{cmmMsgHeader:{returnReasonCode:errCode,returnAuthMsg:errMsg}}};
+    return null;
+  }catch(e){return null}
 }
-// [최종 안전판] 구문 오류(Syntax Error) 원천 차단 및 안정성 강화 버전
-
-// 1. 개별 종목 조회 함수 (에러가 나도 절대 앱을 멈추지 않음)
-async function qKrOne(ticker) {
-  if (!ticker) return null;
-  var code = String(ticker).trim();
-  try {
-    var url = 'https://m.stock.naver.com/api/stock/' + code + '/basic';
-    var res = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent(url));
-    var proxyData = await res.json();
-    
-    if (proxyData && proxyData.contents) {
-      var data = JSON.parse(proxyData.contents);
-      if (data.closePrice) {
-        var price = parseInt(data.closePrice.replace(/,/g, ''), 10);
-        var name = data.stockName || code;
-        var d = new Date();
-        var dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-        
-        return { price: price, name: name, date: dateStr };
-      }
+function qDataGoError(data,httpStatus){
+  var src=data||{}, nested=src.OpenAPI_ServiceResponse||{}, cm=nested.cmmMsgHeader||{}, c=String(cm.returnReasonCode||cm.returnAuthMsg||'');
+  var h=(src.response&&src.response.header)||src.header||{};c=String(h.resultCode||c||'');
+  var m=String(h.resultMsg||cm.returnAuthMsg||cm.returnReason||'');
+  var raw=(c+' '+m+' '+JSON.stringify(data||{})).toUpperCase();
+  if(/SERVICE_KEY_IS_NULL|SERVICE KEY.*NULL/.test(raw))return '공공데이터 인증키가 비어 있습니다.';
+  if(/SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/.test(raw))return '공공데이터 인증키가 등록되지 않았습니다. 일반 인증키와 활용신청 상태를 확인해 주세요.';
+  if(/SERVICE_ACCESS_DENIED|PERMISSION_DENIED|접근 거부|서비스 접근/.test(raw))return '공공데이터 API 접근이 거부되었습니다. 주식시세정보와 증권상품시세정보 두 서비스의 활용신청을 확인해 주세요.';
+  if(/DEADLINE_HAS_EXPIRED|기한 만료/.test(raw))return '공공데이터 인증키의 이용기간이 만료되었습니다.';
+  if(/LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS|호출.*초과|요청 제한/.test(raw))return '공공데이터 일일 호출 한도를 초과했습니다.';
+  if(/LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND|초당.*초과/.test(raw))return '공공데이터 API 호출이 너무 빠릅니다. 잠시 후 다시 시도해 주세요.';
+  if(/NO_OPENAPI_SERVICE_ERROR/.test(raw))return '공공데이터 API 경로가 변경되었거나 서비스가 없습니다.';
+  if(/SERVICETIMEOUT_ERROR|SERVICE TIMEOUT/.test(raw))return '공공데이터 제공기관 응답 시간이 초과되었습니다.';
+  if(httpStatus)return '공공데이터 API HTTP 오류 '+httpStatus+(m?' · '+m:'');
+  return '공공데이터 API 오류'+(c?' ('+c+')':'')+(m?' · '+m:'');
+}
+function qTwelveError(data,httpStatus){
+  var c=Number(data&&(data.code||data.statusCode)||httpStatus||0),m=String(data&&(data.message||data.msg)||'').trim(),raw=(String(data&&data.status||'')+' '+m).toLowerCase();
+  if(c===401||/invalid api.?key|api key.*invalid|unauthor/.test(raw))return 'Twelve Data API 키가 올바르지 않습니다. 키를 다시 확인해 주세요.';
+  if(c===403||/permission|plan|upgrade|required/.test(raw))return 'Twelve Data에서 이 데이터/티커를 현재 플랜으로 조회할 수 없습니다.'+(m?' · '+m:'');
+  if(c===429||/rate limit|credits|quota|too many requests/.test(raw))return 'Twelve Data 호출 한도에 도달했습니다. 분당/일일 한도가 회복된 뒤 다시 시도해 주세요.'+(m?' · '+m:'');
+  if(c===400||c===404||/invalid symbol|symbol.*not found|not found/.test(raw))return 'Twelve Data에서 종목코드를 찾지 못했습니다. 티커와 거래소 표기를 확인해 주세요.'+(m?' · '+m:'');
+  if(httpStatus>=500)return 'Twelve Data 서버 오류 HTTP '+httpStatus+'. 잠시 후 다시 시도해 주세요.'+(m?' · '+m:'');
+  return 'Twelve Data 조회 오류'+(c?' ('+c+')':'')+(m?' · '+m:'');
+}
+async function qJSON(url,provider,retried){
+  retried=!!retried;
+  var ctl=typeof AbortController!=='undefined'?new AbortController():null, timer=setTimeout(function(){if(ctl)ctl.abort()},18000),res,tx,data;
+  try{
+    res=await fetch(url,{method:'GET',cache:'no-store',credentials:'omit',signal:ctl?ctl.signal:undefined,headers:{'Accept':'application/json, application/xml, text/xml'}});
+    tx=await res.text();
+  }catch(e){
+    if(e&&e.name==='AbortError')throw new Error('응답 시간 초과(18초). 다시 시도해 주세요.');
+    if(e instanceof TypeError)throw new Error('브라우저에서 API 응답을 받지 못했습니다(네트워크 또는 CORS 차단). 인터넷 연결을 확인하고, HTML 파일을 직접 열었다면 localhost/HTTPS 웹서버에서 열어 주세요.');
+    throw new Error('네트워크 요청 실패: '+(e&&e.message?e.message:'알 수 없는 오류'));
+  }finally{clearTimeout(timer)}
+  try{data=JSON.parse(tx)}catch(e){data=qXmlToJson(tx);if(!data){
+    var clean=String(tx||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,180);
+    if(provider==='data')throw new Error(qDataGoError({OpenAPI_ServiceResponse:{cmmMsgHeader:{returnAuthMsg:clean}}},res.status));
+    if(provider==='twelve')throw new Error(qTwelveError({message:clean},res.status));
+    throw new Error('JSON 응답을 읽을 수 없습니다 (HTTP '+res.status+').');
+  }}
+  if(!res.ok){
+    if(!retried&&res.status>=500&&res.status<=599){
+      if(provider==='twelve'){await qWait(Math.max(0,8200-(Date.now()-qLastUsRequest)));qLastUsRequest=Date.now();try{localStorage.setItem(QUSLAST,String(qLastUsRequest))}catch(e){}}else{await qWait(900)}
+      return qJSON(url,provider,true)
     }
-    return null;
-  } catch (error) {
-    console.error('조회 실패:', error);
-    return null;
+    if(provider==='data')throw new Error(qDataGoError(data,res.status));if(provider==='twelve')throw new Error(qTwelveError(data,res.status));throw new Error('HTTP '+res.status+' 응답')
   }
+  return data;
 }
-
-// 2. 전체 시세 동기화 함수
-async function qRun(only, quiet) {
-  if (qBusy) return;
-  
-  var keys = qKeys(), us = String(keys.us || '').trim();
-  
-  if (navigator.onLine === false) {
-    if (!quiet) qStatus('오프라인 상태입니다. 현재가를 직접 입력해 주세요.', 'warn');
+function qCheckDataGo(data){
+  var h=(data&&data.response&&data.response.header)||(data&&data.header)||{};
+  var c=String(h.resultCode||'');
+  if(data&&data.OpenAPI_ServiceResponse)throw new Error(qDataGoError(data));
+  if(c&&c!=='00'&&c!=='0')throw new Error(qDataGoError(data));
+  var status=String(data&&data.status||'').toLowerCase();
+  if(status==='error')throw new Error(qDataGoError(data));
+}
+function qItems(data){
+  var xs=data&&data.response&&data.response.body&&data.response.body.items&&data.response.body.items.item;
+  if(xs==null&&data&&data.body&&data.body.items)xs=data.body.items.item;
+  if(xs==null&&data&&data.items)xs=data.items.item||data.items;
+  if(xs==null)return [];
+  return Array.isArray(xs)?xs:[xs];
+}
+function qCodeOf(row){return String(row&&(row.srtnCd||row.srtCd||row.isuSrtCd||row.shortCode||row.symbol)||'').trim().padStart(6,'0')}
+function qBestKrItem(items,code){
+  var rows=items.filter(function(x){return qCodeOf(x)===code&&qNumber(x.clpr||x.closePrice||x.close||x.price)>0});
+  rows.sort(function(a,b){return String(b.basDt||b.localTradedAt||b.tradeDate||'').localeCompare(String(a.basDt||a.localTradedAt||a.tradeDate||''))});
+  return rows[0]||null;
+}
+async function qDataGoOne(url,key,code){
+  var qs=new URLSearchParams();
+  Object.keys(url.params).forEach(function(k){qs.set(k,url.params[k])});
+  qs.set('serviceKey',qServiceKey(key));qs.set('numOfRows','30');qs.set('pageNo','1');qs.set('resultType','json');qs.set('likeSrtnCd',code);
+  var apiUrl=url.base+'?'+qs.toString(), data;
+  for(var attempt=0;attempt<2;attempt++){
+    try{
+      data=await qJSON(apiUrl,'data');qCheckDataGo(data);
+      return qBestKrItem(qItems(data),code);
+    }catch(e){
+      if(attempt===0&&/응답 시간이 초과되었습니다|응답 시간 초과/.test(String(e&&e.message||''))){await qWait(900);continue}
+      throw e;
+    }
+  }
+  return null;
+}
+async function qKrOne(ticker,apiKey){
+  var code=String(ticker||'').trim().toUpperCase();
+  if(!/^[0-9][0-9A-Z]{5}$/.test(code))throw new Error('국내 종목코드는 6자리 코드여야 합니다. 예: 005930');
+  if(!String(apiKey||'').trim())throw new Error('국내 시세 API 키가 없습니다. 시세 API 키 설정에서 공공데이터포털 일반 인증키를 입력해 주세요.');
+  var stockBase='https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService';
+  var productBase='https://apis.data.go.kr/1160100/service/GetSecuritiesProductInfoService';
+  var apis=[
+    {base:stockBase+'/getStockPriceInfo',params:{}},
+    {base:productBase+'/getETFPriceInfo',params:{}},
+    {base:productBase+'/getETNPriceInfo',params:{}},
+    {base:productBase+'/getELWPriceInfo',params:{}}
+  ];
+  var lastErr=null;
+  for(var i=0;i<apis.length;i++){
+    try{
+      var item=await qDataGoOne(apis[i],apiKey,code);
+      if(item){var price=qNumber(item.clpr||item.closePrice||item.close||item.price);if(!(price>0))throw new Error('종가(clpr) 값이 비어 있거나 숫자가 아닙니다.');
+        var date=qIso(item.basDt||item.localTradedAt||item.tradeDate||item.date);
+        return {price:price,name:String(item.itmsNm||item.stockName||item.name||code),date:date,source:'공공데이터포털',code:code};}
+    }catch(e){lastErr=e;break}
+  }
+  if(lastErr)throw lastErr;
+  throw new Error('공공데이터포털에서 '+code+' 종목의 최근 시세를 찾지 못했습니다. 코드·상장 여부를 확인하거나 현재가를 직접 입력해 주세요.');
+}
+async function qTwelveSlot(){
+  try{qLastUsRequest=Math.max(qLastUsRequest,Number(localStorage.getItem(QUSLAST)||0))}catch(e){}
+  var gap=8200-(Date.now()-qLastUsRequest);
+  while(gap>0){qStatus('Twelve Data 요청 간격을 지키기 위해 '+Math.ceil(gap/1000)+'초 대기 중입니다…','warn');await qWait(Math.min(gap,1000));gap=8200-(Date.now()-qLastUsRequest)}
+  qLastUsRequest=Date.now();try{localStorage.setItem(QUSLAST,String(qLastUsRequest))}catch(e){}
+}
+function qTwelveUrl(endpoint,params,key){var qs=new URLSearchParams();Object.keys(params).forEach(function(k){qs.set(k,params[k])});qs.set('apikey',String(key||'').trim());return 'https://api.twelvedata.com/'+endpoint+'?'+qs.toString()}
+async function qUsOne(ticker,apiKey){
+  var code=String(ticker||'').trim().toUpperCase();
+  if(!code)throw new Error('해외 종목코드가 비어 있습니다.');
+  if(!String(apiKey||'').trim())throw new Error('Twelve Data API 키가 없습니다. 시세 API 키 설정에서 해외 시세 키를 입력해 주세요.');
+  await qTwelveSlot();
+  var data=await qJSON(qTwelveUrl('quote',{symbol:code},apiKey),'twelve');
+  if(data&&String(data.status||'').toLowerCase()==='error')throw new Error(qTwelveError(data));
+  var price=qNumber(data&&data.price);if(!(price>0))price=qNumber(data&&data.close);if(!(price>0))price=qNumber(data&&data.last);if(!(price>0))price=qNumber(data&&data.extended_price);
+  if(!(price>0))throw new Error('Twelve Data 응답에 유효한 가격(price/close)이 없습니다. 응답 상태: '+String(data&&data.status||'미확인'));
+  return {price:price,name:String(data.name||data.symbol||code),date:qIso(data.datetime||data.date||''),source:'Twelve Data',code:code};
+}
+async function qFxOne(apiKey){
+  if(!String(apiKey||'').trim())throw new Error('환율 조회에는 Twelve Data API 키가 필요합니다.');
+  await qTwelveSlot();
+  var data=await qJSON(qTwelveUrl('exchange_rate',{symbol:'USD/KRW'},apiKey),'twelve');
+  if(data&&String(data.status||'').toLowerCase()==='error')throw new Error(qTwelveError(data));
+  var rate=qNumber(data&&(data.rate||data.exchange_rate||data.price));
+  if(!(rate>0))throw new Error('Twelve Data 응답에 USD/KRW 환율(rate)이 없습니다.');
+  return {rate:rate,date:qIso(data.datetime||data.date||''),source:'Twelve Data'};
+}
+function qSetInput(id,value){var el=$(id);if(el)el.value=value}
+// 전체 시세 동기화. 실패한 종목은 기존 가격과 종목명을 변경하지 않는다.
+async function qRun(only,quiet){
+  if(qBusy)return;
+  var keys=qKeys(),krKey=String(keys.kr||'').trim(),usKey=String(keys.us||'').trim();
+  if(navigator.onLine===false){qStatus('오프라인 상태입니다. 현재가와 환율을 직접 입력해 주세요.','warn');return}
+  var hs=(S.pf.holdings||[]).filter(function(h){return (!only||h.id===only)&&!!qMarket(h)});
+  var krCodes=[],usCodes=[],seenKr={},seenUs={},errs=[],updated=0,fxUpdated=false,got={};
+  hs.forEach(function(h){var c=String(h.code||'').trim().toUpperCase(),mk=qMarket(h);if(mk==='kr'&&!seenKr[c]){seenKr[c]=1;krCodes.push(c)}else if(mk==='us'&&!seenUs[c]){seenUs[c]=1;usCodes.push(c)}});
+  if(!only){
+    krCodes.forEach(function(c){if(!krKey)errs.push(c+': 국내 시세 API 키 없음')});
+    usCodes.forEach(function(c){if(!usKey)errs.push(c+': 해외 시세 API 키 없음')});
+  }else{
+    if(krCodes.length&&!krKey)errs.push(krCodes[0]+': 국내 시세 API 키 없음');
+    if(usCodes.length&&!usKey)errs.push(usCodes[0]+': 해외 시세 API 키 없음');
+  }
+  var validKr=krKey?krCodes:[],validUs=usKey?usCodes:[];
+  var doFx=!only&&!!usKey;
+  if(!validKr.length&&!validUs.length&&!doFx){
+    var noCodes=!hs.length;
+    qStatus(noCodes?'업데이트할 대상 종목이 없습니다. 종목코드를 먼저 입력해 주세요.':('조회할 API 키가 없습니다. '+(errs.length?errs.join(' · '):'시세 API 키 설정을 확인해 주세요.')),'warn');
     return;
   }
-  
-  var hs = S.pf.holdings.filter(function(h) { return (!only || h.id === only) && qMarket(h); });
-  var krC = {}, usC = {};
-  
-  hs.forEach(function(h) {
-    var c = String(h.code).trim().toUpperCase(), mk = qMarket(h);
-    if (mk === 'kr') krC[c] = 1; 
-    if (mk === 'us' && us) usC[c] = 1;
-  });
-  
-  var krL = Object.keys(krC), usL = Object.keys(usC), got = {}, errs = [], skip = [];
-  
-  if (krL.length === 0 && usL.length === 0) {
-    if (!quiet) qStatus('업데이트할 대상 종목이 없습니다.', 'warn');
-    return;
-  }
-
-  qBusy = true;
-  var btn = $('q-run');
-  if (btn) btn.disabled = true;
-  if (!quiet) qStatus('시세를 가져오는 중입니다...');
-
-  try {
-    // 국내 주식 순차 조회
-    for (var i = 0; i < krL.length; i++) {
-      var code = krL[i];
-      try {
-        var res = await qKrOne(code);
-        if (res && res.price) {
-          got[code] = res;
-        } else {
-          errs.push(code);
-        }
-      } catch (e) {
-        errs.push(code);
-      }
-      await new Promise(function(resolve) { setTimeout(resolve, 150); });
+  qBusy=true;var btn=$('q-run');if(btn)btn.disabled=true;
+  if(!quiet)qStatus('시세를 가져오는 중입니다…','warn');
+  try{
+    for(var i=0;i<validKr.length;i++){
+      var code=validKr[i];
+      try{var res=await qKrOne(code,krKey);if(res&&res.price>0){res._market='kr';got[code]=res;}else throw new Error('가격 데이터가 비어 있습니다.')}catch(e){errs.push(code+': '+(e&&e.message?e.message:'알 수 없는 오류'))}
+      if(i<validKr.length-1)await qWait(180);
     }
-
-    var updated = 0;
-    hs.forEach(function(h) {
-      var c = String(h.code).trim().toUpperCase();
-      if (got[c]) {
-        h.price = got[c].price;
-        if (got[c].name) h.name = got[c].name;
-        if (got[c].date) {
-          h.qd = '자동 ' + got[c].date;
-          S.pf.priceDate = got[c].date;
-        }
-        
-        var nameEl = $('i-hold-' + h.id + '-name');
-        if (nameEl && got[c].name) nameEl.value = h.name;
-        
-        var priceEl = $('i-hold-' + h.id + '-price');
-        if (priceEl) priceEl.value = h.price;
-
-        updated++;
-      }
+    for(var j=0;j<validUs.length;j++){
+      var usCode=validUs[j];
+      try{var usRes=await qUsOne(usCode,usKey);if(usRes&&usRes.price>0){usRes._market='us';got[usCode]=usRes;}else throw new Error('가격 데이터가 비어 있습니다.')}catch(e){errs.push(usCode+': '+(e&&e.message?e.message:'알 수 없는 오류'))}
+    }
+    var fx=null;
+    if(doFx){try{fx=await qFxOne(usKey)}catch(e){errs.push('USD/KRW 환율: '+(e&&e.message?e.message:'알 수 없는 오류'))}}
+    hs.forEach(function(h){var c=String(h.code||'').trim().toUpperCase(),v=got[c];if(!v)return;
+      h.price=v.price;if(v.name)h.name=v.name;
+      if(v.date){h.qd='자동 '+v.date;if(!S.pf.priceDate||v.date>S.pf.priceDate)S.pf.priceDate=v.date}
+      qSetInput('i-hold-'+h.id+'-name',h.name);qSetInput('i-hold-'+h.id+'-price',h.price);updated++;
     });
-
-    if (updated > 0) {
-      save();
-      renderPfResults();
-      renderResults();
-    }
-
-    var msg = '시세 업데이트 완료: ' + updated + '종목 반영.';
-    if (errs.length > 0) msg += ' (실패 종목: ' + errs.join(', ') + ')';
-    if (!quiet) qStatus(msg, errs.length > 0 ? 'warn' : 'info');
-
-  } catch (err) {
-    if (!quiet) qStatus('시세 조회 중 오류가 발생했습니다.', 'error');
-  } finally {
-    qBusy = false;
-    if (btn) btn.disabled = false;
+    if(fx){S.pf.fx=fx.rate;fxUpdated=true;qSetInput('i-pf-fx',fx.rate);if(fx.date&&(!S.pf.priceDate||fx.date>S.pf.priceDate))S.pf.priceDate=fx.date}
+    if(updated>0||fxUpdated){save();renderAccPanel();renderPfResults();renderResults()}
+    var msg='시세 조회 완료: '+updated+'종목 반영'+(fxUpdated?' · USD/KRW '+fx.rate.toLocaleString('ko-KR',{maximumFractionDigits:4})+' 적용':'')+'.';
+    if(errs.length)msg+='\n실패 '+errs.length+'건:\n'+errs.slice(0,6).join('\n')+(errs.length>6?'\n외 '+(errs.length-6)+'건':'');
+    qStatus(msg,errs.length?'warn':'ok');
+  }catch(err){qStatus('시세 조회 중 오류: '+(err&&err.message?err.message:'알 수 없는 오류'),'crit')}
+  finally{
+    if(!only){try{localStorage.setItem(QAUTO,String(Date.now()))}catch(e){}}
+    qBusy=false;if(btn)btn.disabled=false;
   }
 }
 function quoteInit(){
   var k=qKeys(),a=$('q-kr'),b=$('q-us'),c=$('q-auto');
   if(a)a.value=k.kr||'';if(b)b.value=k.us||'';if(c)c.checked=k.auto!==false;
-  function store(){var o=qKeys();o.kr=$('q-kr').value.trim();o.us=$('q-us').value.trim();o.auto=$('q-auto').checked;qSetKeys(o);qHint()}
+  function store(){var o=qKeys();o.kr=$('q-kr')?$('q-kr').value.trim():'';o.us=$('q-us')?$('q-us').value.trim():'';o.auto=$('q-auto')?$('q-auto').checked:true;qSetKeys(o);qHint()}
   [a,b,c].forEach(function(el){if(el)el.addEventListener('change',store)});
   var btn=$('q-run');if(btn)btn.addEventListener('click',function(){qRun(null,false)});
   qHint();
@@ -2707,9 +2797,8 @@ function quoteInit(){
   if(k.auto!==false&&(k.kr||k.us)&&Date.now()-last>3*3600e3)setTimeout(function(){qRun(null,true)},1500);
 }
 function qHint(){
-  var k=qKeys(),parts=[];
-  parts.push(k.kr?'국내 ✓':'국내 키 없음');parts.push(k.us?'해외·환율 ✓':'해외 키 없음');
-  if(!$('q-status').textContent||/^키 상태/.test($('q-status').textContent))qStatus('키 상태: '+parts.join(' · ')+(k.kr||k.us?' — 「지금 시세 가져오기」를 누르거나 종목코드를 입력하면 자동으로 채워집니다.':' — 키를 넣으면 종목코드만 입력해도 현재가가 자동으로 채워집니다.'));
+  var k=qKeys(),parts=[];parts.push(k.kr?'국내 API 키 ✓':'국내 API 키 없음');parts.push(k.us?'해외 API 키 ✓':'해외 API 키 없음');
+  var el=$('q-status');if(el&&(!el.textContent||/^키 상태/.test(el.textContent)))qStatus('키 상태: '+parts.join(' · ')+(k.kr||k.us?' — 「지금 시세 가져오기」를 누르면 가격과 응답 오류를 표시합니다.':' — 시세 API 키 설정에서 국내/해외 키를 입력해 주세요.'),k.kr||k.us?'':'warn');
 }
 
 /* ================= 포트폴리오: 부동산·기타 자산 =================
