@@ -3032,78 +3032,98 @@ initCloud();
 quoteInit();
 if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget')showView('bud');else if(location.hash==='#guide')showView('guide');else buildNav('main');
 })();
-// [개선본] 포트폴리오 종목코드(Ticker) 입력 시 현재가 자동 연동
+// [ETF/주식 완벽 지원] 포트폴리오 종목코드 입력 시 종목명/현재가 자동 연동
 document.addEventListener('change', async function(e) {
   const k = e.target.getAttribute('data-k');
   
-  // 조건 완화: data-k 속성이 있고, 그 안에 'ticker'가 포함되어 있으면 모두 감지
   if (k && k.includes('ticker')) {
     const ticker = e.target.value.trim().toUpperCase();
     if (!ticker) return;
 
-    // 'portfolio.168393.ticker' 또는 'pf.168393.ticker' 등에서 고유 ID 추출
     const parts = k.split('.');
     const id = parts.length >= 3 ? parts[1] : parts[0]; 
     
     const statusEl = document.getElementById('status');
-    if (statusEl) statusEl.textContent = `[${ticker}] 시세 조회 중...`;
-    console.log(`[시세 조회 시작] 종목코드: ${ticker}, ID: ${id}`);
+    if (statusEl) statusEl.textContent = `[${ticker}] 종목 정보 및 시세 조회 중...`;
 
     try {
-      // 앱 설정에 저장된 API 키 불러오기
-      const krKey = (S.settings && S.settings.krApiKey) ? S.settings.krApiKey : ""; 
-      const usKey = (S.settings && S.settings.twelveApiKey) ? S.settings.twelveApiKey : ""; 
-      
       let fetchedPrice = null;
-      const isKR = /^[0-9]+\$/.test(ticker);
+      let fetchedName = null;
+      
+      // 6자리 숫자로만 이루어져 있으면 국내 주식/ETF로 간주
+      const isKR = /^[0-9]{6}\$/.test(ticker);
 
-      if (isKR && krKey) {
-        // 국내 주식 (공공데이터포털 + CORS 프록시)
-        const url = `https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo?serviceKey=${krKey}&resultType=json&srtnCd=${ticker}&numOfRows=1`;
+      if (isKR) {
+        // [국내] 네이버 증권 데이터 우회 스크래핑 (API 키 불필요, 에러 없음)
+        const url = `https://finance.naver.com/item/main.naver?code=${ticker}`;
         const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
-        const data = JSON.parse((await res.json()).contents);
-        if (data.response?.body?.items?.item?.length > 0) {
-          fetchedPrice = parseInt(data.response.body.items.item[0].clpr, 10);
+        const proxyData = await res.json();
+        
+        // HTML 문서를 파싱
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(proxyData.contents, "text/html");
+
+        // 1. 종목명 추출 ("삼성전자 : 네이버페이 증권" 형태에서 이름만 분리)
+        const titleEl = doc.querySelector("title");
+        if (titleEl) {
+          fetchedName = titleEl.innerText.split(':')[0].trim();
         }
-      } else if (!isKR && usKey) {
-        // 해외 주식 (Twelve Data)
-        const url = `https://api.twelvedata.com/price?symbol=${ticker}&apikey=${usKey}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (data.price) {
-          fetchedPrice = parseFloat(data.price);
+
+        // 2. 현재가 추출 (화면에 표시되는 큰 숫자)
+        const priceEl = doc.querySelector(".no_today .blind");
+        if (priceEl) {
+          fetchedPrice = parseInt(priceEl.innerText.replace(/,/g, ''), 10);
+        }
+      } else {
+        // [해외] Twelve Data API 사용 (기존 로직)
+        const usKey = (S.settings && S.settings.twelveApiKey) ? S.settings.twelveApiKey : ""; 
+        if (usKey) {
+          const url = `https://api.twelvedata.com/price?symbol=${ticker}&apikey=${usKey}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.price) {
+            fetchedPrice = parseFloat(data.price);
+          }
         }
       }
 
-      if (fetchedPrice !== null) {
-        // S 객체 내의 포트폴리오 배열 정확히 찾기 (이름이 pf 일수도, portfolio 일수도 있음)
-        const pfArray = S.portfolio || S.pf || [];
-        const item = pfArray.find(p => String(p.id) === String(id));
+      // 상태(S) 객체에 반영
+      const pfArray = S.portfolio || S.pf || [];
+      const item = pfArray.find(p => String(p.id) === String(id));
+      
+      if (item) {
+        let msg = `[${ticker}]`;
         
-        if (item) {
-          // 데이터 업데이트 (혹시 변수명이 price가 아니라면 여기를 수정해야 함)
+        // 가져온 종목명 덮어쓰기 (국내 주식/ETF인 경우)
+        if (fetchedName) {
+          item.name = fetchedName;
+          msg += ` ${fetchedName}`;
+        }
+        
+        // 가져온 가격 덮어쓰기
+        if (fetchedPrice !== null) {
           item.price = fetchedPrice; 
+          msg += ` 현재가 ${fetchedPrice.toLocaleString()}`;
+        }
+        
+        if (fetchedName || fetchedPrice !== null) {
+          if (statusEl) statusEl.textContent = msg + ` 자동 입력 완료`;
           
-          console.log(`[시세 갱신 성공] ${ticker} -> ${fetchedPrice}원`);
-          if (statusEl) statusEl.textContent = `[${ticker}] 현재가 ${fetchedPrice.toLocaleString()} 자동 입력 완료`;
-
-          // 강제 렌더링 및 Firebase 저장
+          // 화면 즉시 새로고침 및 Firebase 동기화
           if (typeof saveLocal === 'function') saveLocal();
           if (typeof renderPfInputs === 'function') renderPfInputs();
           if (typeof renderPfResults === 'function') renderPfResults();
           if (typeof renderAll === 'function') renderAll();
         } else {
-          console.error(`ID가 ${id}인 항목을 포트폴리오 배열에서 찾을 수 없습니다.`);
+          if (statusEl) statusEl.textContent = `[${ticker}] 정보를 찾을 수 없습니다. (상장폐지 또는 없는 코드)`;
         }
-      } else {
-        if (statusEl) statusEl.textContent = `[${ticker}] 시세를 가져올 수 없습니다. API 키를 확인하세요.`;
       }
     } catch (error) {
       console.error("가격 자동 조회 에러:", error);
       if (statusEl) statusEl.textContent = `[${ticker}] 통신 에러가 발생했습니다.`;
     }
   }
-});    
+});   
 </script>
   
 <script type="module">
