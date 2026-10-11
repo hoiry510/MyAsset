@@ -2607,7 +2607,7 @@ async function qKrOne(ticker) {
     return null;
   } catch (error) {
     console.error(`국내주식(${code}) 조회 에러:`, error);
-    return null;
+    return null; // 에러가 나도 앱이 멈추지 않도록 null 반환
   }
 }
 
@@ -2663,7 +2663,7 @@ async function qRun(only, quiet) {
       } catch (e) {
         errs.push(code + '(조회실패)');
       }
-      // 서버 과부하 방지 약간의 대기
+      // 서버 과부하 방지 약간의 대기 (0.1초)
       await new Promise(function(r) { setTimeout(r, 100); }); 
     }
 
@@ -2689,7 +2689,7 @@ async function qRun(only, quiet) {
       }
     }
 
-    // 3. 자산 데이터 반영 및 UI 개별 업데이트 (포커스 유지)
+    // 3. 자산 데이터 반영 및 UI 개별 업데이트 (포커스 튕김 완벽 방지)
     var updated = 0;
     hs.forEach(function(h) {
       var c = String(h.code).trim().toUpperCase();
@@ -2700,13 +2700,12 @@ async function qRun(only, quiet) {
           h.qd = '자동 '+got[c].date; 
           S.pf.priceDate = got[c].date; 
           
-          // 상단 시세 기준일 UI 강제 업데이트
+          // 상단 시세 기준일 UI 핀셋 업데이트
           var pdEl = \$('i-pf-priceDate');
           if (pdEl) pdEl.value = S.pf.priceDate;
         }
         
-        // ★ 핵심: 패널 전체를 다시 그리지 않고, 해당 종목의 값(Value)만 직접 변경
-        // 이렇게 해야 입력칸에서 커서가 튕기지 않습니다.
+        // ★ 핵심: 패널 전체를 지우지 않고, 해당 종목 입력칸 값만 핀셋 업데이트
         var nameEl = \$('i-hold-' + h.id + '-name');
         if (nameEl && got[c].name) nameEl.value = h.name;
         
@@ -2717,11 +2716,11 @@ async function qRun(only, quiet) {
       }
     });
 
-    // 4. 데이터 저장 및 요약화면(합계/수익률 부분)만 새로고침
+    // 4. 데이터 저장 및 요약화면(합계/수익률 계산 텍스트 부분)만 새로고침
     if (updated > 0) {
       save();            
-      renderPfResults(); // 포트폴리오 합계 및 표 리렌더링
-      renderResults();   // 연금 시뮬레이션 연동 리렌더링
+      renderPfResults(); // 텍스트로 된 합계, 수익률만 리렌더링 (입력칸 영향 없음)
+      renderResults();   // 연금 시뮬레이션 쪽 총 자산 리렌더링
     }
 
     var msg = '시세 업데이트 완료: ' + updated + '종목 반영.';
@@ -2733,11 +2732,11 @@ async function qRun(only, quiet) {
     if (!quiet) qStatus('업데이트 중 예상치 못한 오류가 발생했습니다.', 'error');
     console.error('qRun Error:', err);
   } finally {
+    // 5. 작업이 끝나면 버튼 원상복구
     qBusy = false;
     if (btn) btn.disabled = false;
   }
 }
-
 function quoteInit(){
   var k=qKeys(),a=$('q-kr'),b=$('q-us'),c=$('q-auto');
   if(a)a.value=k.kr||'';if(b)b.value=k.us||'';if(c)c.checked=k.auto!==false;
