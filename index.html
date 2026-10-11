@@ -1171,11 +1171,78 @@ function load(){
   try{var raw=localStorage.getItem(STORE)||localStorage.getItem('family-pension-v2');if(raw){var o=JSON.parse(raw);if(o&&(o.v===2||o.v===3)&&o.people)return merge(o)}}catch(e){}
   return defaults();
 }
-function merge(o)
-{
-  var d=defaults();
-  if(o.budget&&o.budget.months)
-    Object.keys(o.budget.months).forEach(function(k){var m=o.budget.months[k];if(!Array.isArray(m.items))m.items=[];if(Array.isArray(m.tx)&&m.tx.length){var sm={};m.tx.forEach(function(t){sm[t.item]=(sm[t.item]||0)+n(t.amount)});m.items.forEach(function(it){if(it.act==null||it.act==='')it.act=sm[it.id]||''})}m.tx=[]});if(!Array.isArray(o.goals))o.goals=[];if(!Array.isArray(o.snaps))o.snaps=[];if(!o.budget||(!o.budget.months&&!Array.isArray(o.budget.revs)))o.budget=defaultBudget();if(!Array.isArray(o.budget.revs)){var ks=Object.keys(o.budget.months||{}).sort();o.budget={v:2,cur:'',revs:ks.map(function(k){var p=k.split('-');return {id:'r-'+k,date:k+'-01',label:p[0]+'년 '+(+p[1])+'월',memo:'월별 기록에서 옮김',items:o.budget.months[k].items||[]}})};if(!o.budget.revs.length)o.budget=defaultBudget()}if(!o.rebal)o.rebal=defaultRebal(false);else{var dr=defaultRebal(false);Object.keys(dr).forEach(function(k){if(o.rebal[k]==null)o.rebal[k]=dr[k]});o.rebal.target=Object.assign({},dr.target,o.rebal.target||{});if(!Array.isArray(o.rebal.hist))o.rebal.hist=[]}if(!o.pf)o.pf=defaultPf(false);var dp=defaultPf(false);['accounts','holdings','others'].forEach(function(k){if(!Array.isArray(o.pf[k]))o.pf[k]=[]});o.pf.macro=Object.assign({},dp.macro,o.pf.macro||{});o.pf.ai=Object.assign({},dp.ai,o.pf.ai||{});o.pf.profiles=Object.assign({},dp.profiles,o.pf.profiles||{});['fx','priceDate','eqDomestic'].forEach(function(k){if(o.pf[k]==null)o.pf[k]=dp[k]});o.v=3;o.settings=Object.assign({},d.settings,o.settings||{});['people','assets','incomes','gifts'].forEach(function(k){if(!Array.isArray(o[k]))o[k]=d[k]});return o
+function merge(o) {
+  var d = defaults();
+  if (o.budget && o.budget.months) {
+    Object.keys(o.budget.months).forEach(function(k) {
+      var m = o.budget.months[k];
+      if (!Array.isArray(m.items)) m.items = [];
+      if (Array.isArray(m.tx) && m.tx.length) {
+        var sm = {};
+        m.tx.forEach(function(t) {
+          sm[t.item] = (sm[t.item] || 0) + n(t.amount);
+        });
+        m.items.forEach(function(it) {
+          if (it.act == null || it.act === '') it.act = sm[it.id] || '';
+        });
+      }
+      m.tx = [];
+    });
+  }
+  if (!Array.isArray(o.goals)) o.goals = [];
+  if (!Array.isArray(o.snaps)) o.snaps = [];
+  if (!o.budget || (!o.budget.months && !Array.isArray(o.budget.revs))) o.budget = defaultBudget();
+  if (!Array.isArray(o.budget.revs)) {
+    var ks = Object.keys(o.budget.months || {}).sort();
+    o.budget = {
+      v: 2,
+      cur: '',
+      revs: ks.map(function(k) {
+        var p = k.split('-');
+        return {
+          id: 'r-' + k,
+          date: k + '-01',
+          label: p[0] + '년 ' + (+p[1]) + '월',
+          memo: '월별 기록에서 옮김',
+          items: o.budget.months[k].items || []
+        };
+      })
+    };
+    if (!o.budget.revs.length) o.budget = defaultBudget();
+  }
+  if (!o.rebal) o.rebal = defaultRebal(false);
+  else {
+    var dr = defaultRebal(false);
+    Object.keys(dr).forEach(function(k) {
+      if (o.rebal[k] == null) o.rebal[k] = dr[k];
+    });
+    o.rebal.target = Object.assign({}, dr.target, o.rebal.target || {});
+    if (!Array.isArray(o.rebal.hist)) o.rebal.hist = [];
+  }
+  if (!o.pf) o.pf = defaultPf(false);
+  var dp = defaultPf(false);
+  ['accounts', 'holdings', 'others'].forEach(function(k) {
+    if (!Array.isArray(o.pf[k])) o.pf[k] = [];
+  });
+  o.pf.macro = Object.assign({}, dp.macro, o.pf.macro || {});
+  o.pf.ai = Object.assign({}, dp.ai, o.pf.ai || {});
+  o.pf.profiles = Object.assign({}, dp.profiles, o.pf.profiles || {});
+  ['fx', 'priceDate', 'eqDomestic'].forEach(function(k) {
+    if (o.pf[k] == null) o.pf[k] = dp[k];
+  });
+  
+  // [수정된 부분] 버전을 3으로 덮어쓰기 전에, 기존에 저장되었던 버전(사용 이력)을 백업합니다.
+  var originalV = o.v || 0; 
+  
+  o.v = 3;
+  o.settings = Object.assign({}, d.settings, o.settings || {});
+  
+  // [수정된 부분] 백업해둔 원래 버전이 2 이상이면(기존 유저면) 강제로 예시 데이터를 넣지 않고 빈 배열([])을 넣습니다.
+  ['people', 'assets', 'incomes', 'gifts'].forEach(function(k) {
+    if (!Array.isArray(o[k])) o[k] = (originalV >= 2) ? [] : d[k];
+  });
+  
+  return o;
 }
 var saveT;
 function saveLocal(){  
@@ -3097,14 +3164,14 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
   const dataRef = ref(db, 'pensionData');
-  
-  let isWriting = false;
+  // [수정 1] boolean 대신 카운터 변수 사용
+  let writeCount = 0; 
 
-  // [수신] 다른 기기에서 데이터가 변경되었을 때
+  // [수정 2] onValue 수신부 덮어쓰기
   onValue(dataRef, (snapshot) => {
     const data = snapshot.val();
-    // 내가 쓰고 있는 도중이 아닐 때만 화면에 반영 (화면 튕김 방지)
-    if (data && !isWriting) {
+    // 내가 저장 중(writeCount > 0)이 아닐 때만 외부 데이터 수신
+    if (data && writeCount === 0) {
       if (window.applyFirebaseData) {
         window.applyFirebaseData(data);
         const s = document.getElementById('status');
@@ -3113,9 +3180,9 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
     }
   });
 
-  // [송신] 로컬에서 데이터가 변경되어 Firebase로 저장할 때
+  // [수정 3] saveToFirebase 송신부 덮어쓰기
   window.saveToFirebase = function(payload) {
-    isWriting = true; // 저장 중 플래그 활성화
+    writeCount++; // 저장 시작 시 카운터 +1
     set(dataRef, payload)
       .then(() => {
         const s = document.getElementById('status');
@@ -3125,8 +3192,10 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
         console.error("Firebase 동기화 실패:", error);
       })
       .finally(() => {
-        // 저장이 완료된 후 잠시 대기했다가 수신 락 해제
-        setTimeout(() => { isWriting = false; }, 1000); 
+        // 저장이 완료되고 1초 뒤에 카운터 -1 (여유 시간 확보)
+        setTimeout(() => { 
+          if (writeCount > 0) writeCount--; 
+        }, 1000); 
       });
   };
 </script> 
