@@ -3033,6 +3033,72 @@ quoteInit();
 if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget')showView('bud');else if(location.hash==='#guide')showView('guide');else buildNav('main');
 })();
 </script>
+
+  // [추가 기능] 포트폴리오 종목코드(Ticker) 입력 시 현재가 자동 연동 리스너
+document.addEventListener('change', async function(e) {
+  // 1. 값이 변경된 입력칸이 '포트폴리오의 종목코드(ticker)'인지 확인
+  const k = e.target.getAttribute('data-k');
+  if (k && k.startsWith('portfolio.') && k.endsWith('.ticker')) {
+    const ticker = e.target.value.trim().toUpperCase();
+    if (!ticker) return;
+
+    // 아이디 추출 (예: 'portfolio.168393.ticker' -> '168393')
+    const id = k.split('.')[1];
+    
+    // 상태 알림 표시
+    const statusEl = document.getElementById('status');
+    if (statusEl) statusEl.textContent = `[${ticker}] 현재가 조회 중...`;
+
+    try {
+      // 2. 앱 설정에 저장된 API 키 불러오기
+      // (기존 '시세 자동 조회' 기능에서 사용하기 위해 입력해두신 키를 그대로 활용합니다)
+      const krKey = S.settings.krApiKey || ""; 
+      const usKey = S.settings.twelveApiKey || ""; 
+      
+      let fetchedPrice = null;
+      const isKR = /^[0-9]+\$/.test(ticker); // 코드가 숫자로만 되어있으면 국내 주식
+
+      // 3. API 호출하여 가격 가져오기
+      if (isKR && krKey) {
+        // 국내 주식 (공공데이터포털)
+        const url = `https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo?serviceKey=${krKey}&resultType=json&srtnCd=${ticker}&numOfRows=1`;
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+        const data = JSON.parse((await res.json()).contents);
+        if (data.response?.body?.items?.item?.length > 0) {
+          fetchedPrice = parseInt(data.response.body.items.item[0].clpr, 10);
+        }
+      } else if (!isKR && usKey) {
+        // 해외 주식 (Twelve Data)
+        const url = `https://api.twelvedata.com/price?symbol=${ticker}&apikey=${usKey}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.price) {
+          fetchedPrice = parseFloat(data.price);
+        }
+      }
+
+      // 4. 가져온 현재가를 상태 객체(S)에 덮어쓰고 화면 새로고침
+      if (fetchedPrice !== null) {
+        const item = S.portfolio.find(p => p.id === id);
+        if (item) {
+          item.price = fetchedPrice; // 기존 코드의 '현재가' 데이터 키값
+          
+          // Firebase 자동 저장 및 화면 UI 즉시 갱신
+          if (typeof saveLocal === 'function') saveLocal();
+          if (typeof renderPfInputs === 'function') renderPfInputs();
+          if (typeof renderPfResults === 'function') renderPfResults();
+          
+          if (statusEl) statusEl.textContent = `[${ticker}] 현재가 ${fetchedPrice.toLocaleString()} 자동 입력 완료`;
+        }
+      } else {
+        if (statusEl) statusEl.textContent = `[${ticker}] API 키가 없거나 시세를 찾을 수 없습니다. 직접 입력해주세요.`;
+      }
+    } catch (error) {
+      console.error("가격 자동 조회 실패:", error);
+      if (statusEl) statusEl.textContent = `[${ticker}] 통신 중 에러가 발생했습니다.`;
+    }
+  }
+});
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
   import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js";
