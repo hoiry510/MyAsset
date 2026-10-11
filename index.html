@@ -703,7 +703,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
     <p class="caption" id="q-status" role="status" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
-        <div class="f"><label for="q-kr">국내 종목·ETF: 별도 API 키 불필요</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키"><span class="hint">네이버 모바일 주식 시세 API를 공개 프록시를 통해 조회합니다. 프록시 정책·접속 상태에 따라 실패할 수 있습니다.</span></div>
+        <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 일반 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키 (Encoding 또는 Decoding)"><span class="hint">보통주는 금융위원회_주식시세정보, ETF·ETN·ELW는 금융위원회_증권상품시세정보 API를 사용합니다. 두 서비스의 활용신청을 확인해 주세요. Encoding/Decoding 키 형식을 감지해 URL 인코딩을 처리합니다.</span></div>
         <div class="f"><label for="q-us">해외 종목·환율: Twelve Data API 키</label><input id="q-us" type="password" autocomplete="off" placeholder="API key"><span class="hint">twelvedata.com 무료 가입 → Dashboard의 API Keys. 무료는 하루 800건, 분당 8건</span></div>
         <div class="f chk"><input type="checkbox" id="q-auto" checked><label for="q-auto">파일을 열 때 자동으로 시세 갱신 (3시간마다)</label></div>
       </div>
@@ -982,7 +982,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
     <div class="card"><h3>국내: 공공데이터포털 키 받기</h3><ol class="steps">
       <li><b>data.go.kr</b>에 회원가입하고 로그인합니다.</li>
       <li>검색창에 「금융위원회_주식시세정보」를 찾아 <b>활용신청</b>합니다. 활용 목적은 「개인 자산관리」 정도로 적으면 되고 자동 승인됩니다.</li>
-      <li>같은 방법으로 「금융위원회_증권상품시세정보」(ETF·ETN)도 활용신청합니다.</li>
+      <li>같은 방법으로 ETF·ETN·ELW도 조회하려면 「금융위원회_증권상품시세정보」를 별도로 활용신청해야 합니다.</li>
       <li>마이페이지 → 개발계정 → <b>일반 인증키</b>를 복사합니다. Encoding·Decoding 둘 다 됩니다.</li>
       <li>승인 직후 1~2시간은 「등록되지 않은 서비스키」 오류가 날 수 있습니다. 잠시 뒤 다시 시도하세요.</li>
     </ol></div>
@@ -2567,11 +2567,23 @@ var QKEY='family-pension-quotekeys', QAUTO='family-pension-quoteat', QUSLAST='fa
 function qKeys(){try{return JSON.parse(localStorage.getItem(QKEY)||'{}')||{}}catch(e){return {}}}
 function qSetKeys(o){try{localStorage.setItem(QKEY,JSON.stringify(o))}catch(e){}}
 function qKr(k){k=String(k||'').trim();if(k.indexOf('%')>=0){try{k=decodeURIComponent(k)}catch(e){}}return k}
-function qServiceKey(k){
-  var s=String(k||'').trim();
-  // data.go.kr의 Encoding 키와 Decoding 키 모두를 입력받을 수 있다.
-  for(var i=0;i<2&&/%[0-9a-f]{2}/i.test(s);i++){try{s=decodeURIComponent(s)}catch(e){break}}
-  return s;
+function qServiceKeyCandidates(k){
+  // Encoding 키는 URL에 이미 인코딩된 값으로 직접 넣고, Decoding 키는 한 번만 URL 인코딩한다.
+  // 일부 복사 경로에서 키가 이중 인코딩되는 경우를 대비해 디코딩 단계별 대안도 준비한다.
+  var raw=String(k||'').trim(), out=[], seen={};
+  function add(v,alreadyEncoded){
+    if(!v)return;
+    var part=alreadyEncoded?v:encodeURIComponent(v);
+    if(!seen[part]){seen[part]=1;out.push({part:part,mode:alreadyEncoded?'입력된 Encoding 키':'Decoding 키를 URL 인코딩'});}
+  }
+  if(/%[0-9a-f]{2}/i.test(raw))add(raw,true);
+  var v=raw;
+  for(var i=0;i<3;i++){
+    if(!/%[0-9a-f]{2}/i.test(v))break;
+    try{var d=decodeURIComponent(v);if(d===v)break;v=d;add(v,false)}catch(e){break}
+  }
+  if(!out.length)add(raw,false);
+  return out;
 }
 function qYmd(d){return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')}
 function qIso(s){s=String(s||'').trim();return /^\d{8}$/.test(s)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6):(/^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):'')}
@@ -2600,8 +2612,8 @@ function qDataGoError(data,httpStatus){
   var m=String(h.resultMsg||cm.returnAuthMsg||cm.returnReason||'');
   var raw=(c+' '+m+' '+JSON.stringify(data||{})).toUpperCase();
   if(/SERVICE_KEY_IS_NULL|SERVICE KEY.*NULL/.test(raw))return '공공데이터 인증키가 비어 있습니다.';
-  if(/SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/.test(raw))return '공공데이터 인증키가 등록되지 않았습니다. 일반 인증키와 활용신청 상태를 확인해 주세요.';
-  if(/SERVICE_ACCESS_DENIED|PERMISSION_DENIED|접근 거부|서비스 접근/.test(raw))return '공공데이터 API 접근이 거부되었습니다. 주식시세정보와 증권상품시세정보 두 서비스의 활용신청을 확인해 주세요.';
+  if(/SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/.test(raw))return '공공데이터 인증키가 등록되지 않았습니다. Encoding/Decoding 인증키와 URL 인코딩을 확인하고, 해당 API 상세 화면의 미리보기에서 같은 키가 성공하는지 확인해 주세요.';
+  if(/SERVICE_ACCESS_DENIED|PERMISSION_DENIED|접근 거부|서비스 접근/.test(raw))return '공공데이터 API 접근이 거부되었습니다. 현재 조회 중인 서비스의 활용신청 상태와 해당 서비스키 연결 상태를 확인해 주세요.';
   if(/DEADLINE_HAS_EXPIRED|기한 만료/.test(raw))return '공공데이터 인증키의 이용기간이 만료되었습니다.';
   if(/LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS|호출.*초과|요청 제한/.test(raw))return '공공데이터 일일 호출 한도를 초과했습니다.';
   if(/LIMITED_NUMBER_OF_SERVICE_REQUESTS_PER_SECOND|초당.*초과/.test(raw))return '공공데이터 API 호출이 너무 빠릅니다. 잠시 후 다시 시도해 주세요.';
@@ -2667,44 +2679,59 @@ function qBestKrItem(items,code){
   return rows[0]||null;
 }
 async function qDataGoOne(url,key,code){
-  var qs=new URLSearchParams();
-  Object.keys(url.params).forEach(function(k){qs.set(k,url.params[k])});
-  qs.set('serviceKey',qServiceKey(key));qs.set('numOfRows','30');qs.set('pageNo','1');qs.set('resultType','json');qs.set('likeSrtnCd',code);
-  var apiUrl=url.base+'?'+qs.toString(), data;
-  for(var attempt=0;attempt<2;attempt++){
+  var params=new URLSearchParams();
+  params.set('numOfRows','100');params.set('pageNo','1');params.set('resultType','json');
+  // 금융위원회 주식시세정보 API의 정확한 단축종목코드 필터
+  params.set(url.codeParam||'srtnCd',code);
+  var candidates=qServiceKeyCandidates(key),lastErr=null;
+  for(var i=0;i<candidates.length;i++){
+    var apiUrl=url.base+'?serviceKey='+candidates[i].part+'&'+params.toString();
     try{
-      data=await qJSON(apiUrl,'data');qCheckDataGo(data);
+      var data=await qJSON(apiUrl,'data');qCheckDataGo(data);
       return qBestKrItem(qItems(data),code);
     }catch(e){
-      if(attempt===0&&/응답 시간이 초과되었습니다|응답 시간 초과/.test(String(e&&e.message||''))){await qWait(900);continue}
+      lastErr=e;
+      var msg=String(e&&e.message||e);
+      var auth=/인증키가 등록되지 않았습니다|SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/i.test(msg);
+      if(auth&&i<candidates.length-1)continue;
       throw e;
     }
   }
+  if(lastErr)throw lastErr;
   return null;
 }
 async function qKrOne(ticker,apiKey){
   var code=String(ticker||'').trim().toUpperCase();
-  if(!/^[0-9][0-9A-Z]{5}$/.test(code))throw new Error('국내 종목코드는 6자리 코드여야 합니다. 예: 005930');
+  if(!/^\d{6}$/.test(code))throw new Error('국내 종목코드는 숫자 6자리여야 합니다. 예: 005930');
   if(!String(apiKey||'').trim())throw new Error('국내 시세 API 키가 없습니다. 시세 API 키 설정에서 공공데이터포털 일반 인증키를 입력해 주세요.');
   var stockBase='https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService';
   var productBase='https://apis.data.go.kr/1160100/service/GetSecuritiesProductInfoService';
+  // 보통주는 주식시세정보, ETF/ETN/ELW는 별도 증권상품시세정보 API에서 조회합니다.
   var apis=[
-    {base:stockBase+'/getStockPriceInfo',params:{}},
-    {base:productBase+'/getETFPriceInfo',params:{}},
-    {base:productBase+'/getETNPriceInfo',params:{}},
-    {base:productBase+'/getELWPriceInfo',params:{}}
+    {base:stockBase+'/getStockPriceInfo',label:'주식시세정보',codeParam:'srtnCd'},
+    {base:productBase+'/getETFPriceInfo',label:'증권상품시세정보(ETF)',codeParam:'likeSrtnCd'},
+    {base:productBase+'/getETNPriceInfo',label:'증권상품시세정보(ETN)',codeParam:'likeSrtnCd'},
+    {base:productBase+'/getELWPriceInfo',label:'증권상품시세정보(ELW)',codeParam:'likeSrtnCd'}
   ];
   var lastErr=null;
   for(var i=0;i<apis.length;i++){
     try{
       var item=await qDataGoOne(apis[i],apiKey,code);
-      if(item){var price=qNumber(item.clpr||item.closePrice||item.close||item.price);if(!(price>0))throw new Error('종가(clpr) 값이 비어 있거나 숫자가 아닙니다.');
+      if(item){
+        var price=qNumber(item.clpr||item.closePrice||item.close||item.price);
+        if(!(price>0))throw new Error('종가(clpr) 값이 비어 있거나 숫자가 아닙니다.');
         var date=qIso(item.basDt||item.localTradedAt||item.tradeDate||item.date);
-        return {price:price,name:String(item.itmsNm||item.stockName||item.name||code),date:date,source:'공공데이터포털',code:code};}
-    }catch(e){lastErr=e;break}
+        return {price:price,name:String(item.itmsNm||item.stockName||item.name||code),date:date,source:'공공데이터포털',code:code};
+      }
+    }catch(e){
+      var em=String(e&&e.message||e);
+      lastErr=new Error(apis[i].label+' 조회 실패: '+em);
+      // 인증 오류는 같은 키로 다른 호출을 반복해도 해결되지 않습니다.
+      if(/인증키|SERVICE_KEY|SERVICE_ACCESS_DENIED|PERMISSION_DENIED|접근이 거부|이용기간이 만료/i.test(em))break;
+    }
   }
   if(lastErr)throw lastErr;
-  throw new Error('공공데이터포털에서 '+code+' 종목의 최근 시세를 찾지 못했습니다. 코드·상장 여부를 확인하거나 현재가를 직접 입력해 주세요.');
+  throw new Error('공공데이터포털에서 '+code+' 종목의 최근 시세를 찾지 못했습니다. 주식시세정보 또는 증권상품시세정보 API의 코드·거래 여부를 확인하거나 현재가를 직접 입력해 주세요.');
 }
 async function qTwelveSlot(){
   try{qLastUsRequest=Math.max(qLastUsRequest,Number(localStorage.getItem(QUSLAST)||0))}catch(e){}
