@@ -701,7 +701,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
   <div class="card" style="margin-top:12px"><div class="fields" id="pf-global"></div></div>
   <div class="card" style="margin-top:12px" id="quote-card">
     <div class="card-head"><h3>시세 자동 조회</h3><div><button class="btn" type="button" id="q-sheet-sync">시트에서 가져오기</button> <button class="btn primary" type="button" id="q-run">지금 시세 가져오기</button></div></div>
-    <p class="caption">시트 연동: 구글 시트 원본에서 가격·종목·수량을 가져옵니다. 로그인할 때 자동으로 연동되고, 새 세션에서는 이 버튼을 한 번 누르면 됩니다. 키는 필요 없습니다.</p>
+    <p class="caption">시트 가격 연동: 구글 시트 기준 현재가만 가져옵니다. 로그인·키 없이 웹페이지를 열면 자동으로 반영되고, 종목 추가·삭제는 웹페이지에서 직접 합니다.</p>
     <p class="caption" id="q-status" role="status" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
@@ -3017,6 +3017,73 @@ function sheetSyncButton(){
   })();
 }
 
+
+/* ================= 시트 가격 피드 (값만) =================
+   공개된 가격 피드(코드·현재가만)에서 가격을 가져온다. 계좌·수량·금액은
+   피드에 없고, 웹페이지에서 가져오지도 않는다. 로그인·토큰·키가 필요
+   없으며, 종목 추가·삭제는 웹페이지에서 직접 한다. 가격은 시트 기준
+   원화 값(미국 종목은 시트에서 이미 원화로 환산됨)이다.
+*/
+var SHEET_PRICE_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQF1dudMuiPmnfAjeL2ipzxd5M_rN3TaK70Wvk88KbwbMfJosVDtIRUtat1vvLsKwOLF95DJpS9Vdzh/pub?gid=0&single=true&output=csv";
+function sheetPriceParseCsv(text){
+  var map = {}, lines = String(text || "").split(/\r?\n/);
+  lines.forEach(function(line, idx){
+    if(idx === 0) return;
+    if(!line.trim()) return;
+    var m = line.match(/^([^,]*),(.*)$/);
+    if(!m) return;
+    var code = m[1].trim().toUpperCase();
+    var price = sheetNum(m[2]);
+    if(code && price > 0) map[code] = price;
+  });
+  return map;
+}
+function sheetPriceApply(map){
+  var updated = 0;
+  (S.pf.holdings || []).forEach(function(h){
+    var code = String(h.code || "").trim().toUpperCase();
+    if(code && map[code] > 0 && h.price !== map[code]){ h.price = map[code]; updated++; }
+    if(code && map[code] > 0){ h.qd = "시트 " + sheetTodayKST(); }
+  });
+  if(map["USD"] > 0) S.pf.fx = map["USD"];
+  if(updated >= 0){
+    S.pf.priceDate = sheetTodayKST();
+    applySync();
+    if(typeof renderInputs === "function") renderInputs();
+    renderPfInputs(); renderResults(); renderPfResults();
+    save();
+  }
+  return updated;
+}
+async function sheetPriceSync(){
+  qStatus("시트 가격을 가져오는 중입니다…", "warn");
+  var res = await fetch(SHEET_PRICE_CSV);
+  if(!res.ok) throw new Error("가격 피드를 읽지 못했어요 (" + res.status + ")");
+  var text = await res.text();
+  var map = sheetPriceParseCsv(text);
+  var codes = Object.keys(map).length;
+  if(codes < 10) throw new Error("가격 피드에서 읽은 종목이 너무 적어요 (" + codes + "개)");
+  var updated = sheetPriceApply(map);
+  var msg = "시트 가격 연동 완료: " + updated + "종목 반영 · 피드 " + codes + "종목";
+  qStatus(msg, "ok");
+  if(typeof toast === "function") toast(msg);
+  return msg;
+}
+window.sheetPriceSync = sheetPriceSync;
+function sheetPriceButton(){
+  sheetPriceSync().catch(function(e){ qStatus("시트 가격 연동 실패: " + (e && e.message ? e.message : "알 수 없는 오류"), "crit"); });
+}
+var sheetPriceAutoDone = false;
+function sheetPriceAuto(){
+  if(sheetPriceAutoDone) return;
+  sheetPriceAutoDone = true;
+  sheetPriceSync().catch(function(e){
+    // 피드 실패 시 기존 가격을 유지하고, 조용히 상태만 남긴다.
+    qStatus("시트 가격을 가져오지 못했어요 · 기존 가격을 유지합니다.", "warn");
+  });
+}
+window.sheetPriceAuto = sheetPriceAuto;
+
 function quoteInit(){
   var k=qKeys(),a=$('q-kr'),b=$('q-us'),c=$('q-auto');
   if(a)a.value=k.kr||'';if(b)b.value=k.us||'';if(c)c.checked=k.auto!==false;
@@ -3024,7 +3091,7 @@ function quoteInit(){
   [a,b,c].forEach(function(el){if(el){el.addEventListener('change',store);if(el.type==='password')el.addEventListener('input',store)}});
   // 버튼을 누르는 순간 키 입력값을 먼저 저장하여 blur/change 이벤트 순서에 의존하지 않습니다.
   var btn=$('q-run');if(btn)btn.addEventListener('click',function(){store();qRun(null,false)});
-  var sbtn=$('q-sheet-sync');if(sbtn)sbtn.addEventListener('click',sheetSyncButton);
+  var sbtn=$('q-sheet-sync');if(sbtn){ sbtn.textContent='시트 가격 가져오기'; sbtn.addEventListener('click',sheetPriceButton); }
   qHint();
   var last=0;try{last=+localStorage.getItem(QAUTO)||0}catch(e){}
   if(k.auto!==false&&(k.kr||k.us)&&Date.now()-last>3*3600e3)setTimeout(function(){qRun(null,true)},1500);
@@ -3685,6 +3752,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   }).catch(function(e){ console.error('리다이렉트 결과 확인 실패:', e); });
   var sheetSyncDone = false;
   function trySheetSyncAfterCloud(){
+    return; // 값만 가져오는 가격 피드 방식으로 대체됨. OAuth 전체 연동은 자동 실행하지 않는다.
     if(!cloudFirstLoadDone || sheetSyncDone) return;
     var tok = storedSheetToken();
     if(!tok || typeof window.sheetSync !== 'function'){
@@ -3744,7 +3812,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
       const data = snapshot.val();
       if (!cloudFirstLoadDone) {
         cloudFirstLoadDone = true;
-        setTimeout(trySheetSyncAfterCloud, 300);
+        setTimeout(function(){ if(typeof window.sheetPriceAuto === 'function') window.sheetPriceAuto(); }, 500);
         if (typeof window.__firebaseFirstLoad === 'function') window.__firebaseFirstLoad(!!data);
       }
       // 내가 저장 중(writeCount > 0)이 아닐 때만 외부 데이터 수신
