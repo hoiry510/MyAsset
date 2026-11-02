@@ -1008,7 +1008,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
       <tr><td class="who">네트워크 연결 실패 / 오프라인 상태</td><td>인터넷이 끊겼거나 브라우저의 CORS 정책이 API 접속을 차단한 경우일 수 있습니다. HTML 파일을 직접 열었다면 localhost 또는 HTTPS 웹서버에서 실행해 보세요. 그래도 안 되면 현재가를 직접 넣으면 됩니다.</td></tr>
     </tbody>
   </table></div>
-  <p class="caption">부동산 시세는 포트폴리오 탭 「부동산 · 기타 자산」에서 아파트 실거래가 검색으로 가져올 수 있습니다. 시세 자동 조회의 공공데이터포털 키를 쓰며, 국토교통부_아파트매매 실거래자료 활용신청이 필요합니다.</p>
+  <p class="caption">부동산 시세는 포트폴리오 탭 「부동산 · 기타 자산」에서 아파트 실거래가 검색으로 가져올 수 있습니다. 시세 자동 조회의 공공데이터포털 키를 쓰며, 국토교통부_아파트 매매 실거래가 상세 자료 활용신청이 필요합니다.</p>
 </section>
 
 <section id="g-ai">
@@ -2938,7 +2938,7 @@ function renderOthPanel(){
       '<div class="f"><label for="rt-lawd-'+o.id+'">시군구 코드 (5자리)</label><input id="rt-lawd-'+o.id+'" type="text" inputmode="numeric" placeholder="예: 11680"><span class="hint">국토부 API는 아파트명만으로 조회하지 않고 시군구 코드가 필요합니다. 예: 강남구 11680, 서초구 11650. 국토부 실거래가 공개시스템에서 지역을 선택하면 주소창 LAWD_CD에서 확인할 수 있어요.</span></div>'+
       '<div class="f"><label for="rt-apt-'+o.id+'">아파트명 (일부만 입력 가능)</label><input id="rt-apt-'+o.id+'" type="text" placeholder="예: 래미안"><span class="hint">비우면 해당 시군구의 최근 거래를 보여 줍니다.</span></div>'+
       '<div class="f"><label for="rt-area-'+o.id+'">전용면적 (㎡, 선택)</label><input id="rt-area-'+o.id+'" type="number" inputmode="decimal" placeholder="예: 84"><span class="hint">입력하면 ±1.5㎡ 안의 거래만 보여 줍니다.</span></div>'+
-      '</div><p class="caption" style="margin-top:8px">공공데이터포털 일반 인증키를 씁니다. 같은 키로 국토교통부_아파트매매 실거래자료 활용신청이 되어 있어야 합니다. 키는 이 기기의 브라우저에만 저장됩니다.</p><div data-rtbox="'+o.id+'" style="margin-top:8px"></div></div>':'')+
+      '</div><p class="caption" style="margin-top:8px">공공데이터포털 일반 인증키를 씁니다. 같은 키로 국토교통부_아파트 매매 실거래가 상세 자료 활용신청이 되어 있어야 합니다. 키는 이 기기의 브라우저에만 저장됩니다.</p><div data-rtbox="'+o.id+'" style="margin-top:8px"></div></div>':'')+
       '<div class="calc" data-ocalc="'+o.id+'"></div>'+
       (o.link&&lk?'':'<button class="btn ghost" type="button" data-onew="'+o.id+'" style="margin-top:8px">자산 탭에 새 행 만들어 연결</button>')+'</div>';
   }).join('');
@@ -3011,7 +3011,8 @@ document.addEventListener('click',function(e){
 
 
 /* ================= 아파트 실거래가 검색 (국토교통부) =================
-   공공데이터포털 RTMSDataSvcAptTrade API를 쓴다. 이 API는 아파트명만으로
+   공공데이터포털 RTMSDataSvcAptTradeDev(아파트 매매 실거래가 상세 자료) API를
+   먼저 쓰고, 접근이 거부될 때만 기본 RTMSDataSvcAptTrade API로 시도한다. 이 API는 아파트명만으로
    조회하지 않고 시군구 코드(LAWD_CD, 5자리)와 거래년월이 필요하므로,
    화면에서 시군구 코드를 받고 최근 12개월을 거슬러 조회한 뒤 아파트명·
    전용면적으로 화면에서 필터링한다. 가격은 dealAmount(만원) 그대로 쓰며,
@@ -3023,23 +3024,34 @@ function rtMonths(){
 }
 function rtBox(id){return document.querySelector('[data-rtbox="'+id+'"]')}
 async function rtFetchMonth(lawd,ymd,key){
+  // 사용자가 신청한 상세 자료를 먼저 쓰고, 상세 자료 접근이 거부될 때만
+  // 기본 실거래 자료로 한 번 더 시도한다. 두 서비스는 같은 파라미터와
+  // 같은 응답 필드(aptNm, dealAmount, excluUseAr, floor 등)를 쓴다.
+  var endpoints=[
+    'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev',
+    'https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade'
+  ];
   var candidates=qServiceKeyCandidates(key),lastErr=null;
-  for(var i=0;i<candidates.length;i++){
-    var req=new URL('https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade');
-    req.searchParams.set('serviceKey',candidates[i].value);
-    req.searchParams.set('LAWD_CD',lawd);
-    req.searchParams.set('DEAL_YMD',ymd);
-    req.searchParams.set('numOfRows','100');
-    req.searchParams.set('pageNo','1');
-    try{
-      var data=await qJSON(req.toString(),'data');
-      qCheckDataGo(data);
-      return qItems(data);
-    }catch(e){
-      lastErr=e;
-      var msg=String(e&&e.message||e);
-      if(/인증키가 등록되지 않았습니다|SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/i.test(msg)&&i<candidates.length-1)continue;
-      throw e;
+  for(var ei=0;ei<endpoints.length;ei++){
+    for(var i=0;i<candidates.length;i++){
+      var req=new URL(endpoints[ei]);
+      req.searchParams.set('serviceKey',candidates[i].value);
+      req.searchParams.set('LAWD_CD',lawd);
+      req.searchParams.set('DEAL_YMD',ymd);
+      req.searchParams.set('numOfRows','100');
+      req.searchParams.set('pageNo','1');
+      try{
+        var data=await qJSON(req.toString(),'data');
+        qCheckDataGo(data);
+        return qItems(data);
+      }catch(e){
+        lastErr=e;
+        var msg=String(e&&e.message||e);
+        if(/인증키가 등록되지 않았습니다|SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/i.test(msg)&&i<candidates.length-1)continue;
+        // 접근 거부면 다음 엔드포인트로 넘어가고, 그 외 오류는 그대로 던진다.
+        if(/접근이 거부|SERVICE_ACCESS_DENIED|PERMISSION_DENIED/i.test(msg))break;
+        throw e;
+      }
     }
   }
   if(lastErr)throw lastErr;
@@ -3054,7 +3066,7 @@ async function rtSearch(othId){
   if(!/^\d{5}$/.test(lawd)){box.innerHTML='<p class="caption">시군구 코드를 5자리 숫자로 입력하세요. 예: 강남구 11680</p>';return}
   var krInput=$('q-kr'),keys=qKeys();
   var key=String(krInput?krInput.value:(keys.kr||'')).trim();
-  if(!key){box.innerHTML='<p class="caption">공공데이터포털 일반 인증키가 필요합니다. 포트폴리오 탭 「시세 자동 조회」 &gt; 「시세 API 키 설정」에 키를 넣고, 국토교통부_아파트매매 실거래자료 활용신청도 확인하세요.</p>';return}
+  if(!key){box.innerHTML='<p class="caption">공공데이터포털 일반 인증키가 필요합니다. 포트폴리오 탭 「시세 자동 조회」 &gt; 「시세 API 키 설정」에 키를 넣고, 국토교통부_아파트 매매 실거래가 상세 자료 활용신청도 확인하세요.</p>';return}
   box.innerHTML='<p class="caption">최근 실거래가를 조회하는 중입니다…</p>';
   try{
     var found=[];
