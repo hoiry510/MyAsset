@@ -3055,19 +3055,67 @@ function sheetPriceApply(map){
   }
   return updated;
 }
+function sheetPriceGviz(){
+  return new Promise(function(resolve, reject){
+    var id = "2PACX-1vQF1dudMuiPmnfAjeL2ipzxd5M_rN3TaK70Wvk88KbwbMfJosVDtIRUtat1vvLsKwOLF95DJpS9Vdzh";
+    var url = "https://docs.google.com/spreadsheets/d/e/" + id + "/gviz/tq?tqx=out:json&headers=1&gid=0";
+    var done = false;
+    window.google = window.google || {};
+    window.google.visualization = window.google.visualization || {};
+    window.google.visualization.Query = window.google.visualization.Query || {};
+    window.google.visualization.Query.setResponse = function(data){
+      if(done) return; done = true;
+      try{
+        var map = {};
+        (data.table.rows || []).forEach(function(r){
+          var c = r.c || [];
+          var code = String(c[0] && c[0].v != null ? c[0].v : "").trim().toUpperCase();
+          var price = c[1] ? sheetNum(c[1].v) : 0;
+          if(code && price > 0) map[code] = price;
+        });
+        resolve(map);
+      }catch(e){ reject(e); }
+    };
+    var sc = document.createElement("script");
+    sc.src = url;
+    sc.onerror = function(){ if(!done){ done = true; reject(new Error("gviz 스크립트 로드 실패")); } };
+    document.head.appendChild(sc);
+    setTimeout(function(){ if(!done){ done = true; reject(new Error("gviz 응답 시간 초과")); } }, 15000);
+  });
+}
 async function sheetPriceSync(){
   qStatus("시트 가격을 가져오는 중입니다…", "warn");
-  var res = await fetch(SHEET_PRICE_CSV);
-  if(!res.ok) throw new Error("가격 피드를 읽지 못했어요 (" + res.status + ")");
-  var text = await res.text();
-  var map = sheetPriceParseCsv(text);
-  var codes = Object.keys(map).length;
-  if(codes < 10) throw new Error("가격 피드에서 읽은 종목이 너무 적어요 (" + codes + "개)");
-  var updated = sheetPriceApply(map);
-  var msg = "시트 가격 연동 완료: " + updated + "종목 반영 · 피드 " + codes + "종목";
-  qStatus(msg, "ok");
-  if(typeof toast === "function") toast(msg);
-  return msg;
+  var diag = "";
+  try{
+    var res = await fetch(SHEET_PRICE_CSV);
+    if(!res.ok) throw new Error("가격 피드를 읽지 못했어요 (" + res.status + ")");
+    var text = await res.text();
+    diag = "CSV " + text.length + "자 · " + String(text).slice(0, 80);
+    var map = sheetPriceParseCsv(text);
+    var codes = Object.keys(map).length;
+    if(codes >= 10){
+      var updated = sheetPriceApply(map);
+      var msg = "시트 가격 연동 완료: " + updated + "종목 반영 · 피드 " + codes + "종목";
+      qStatus(msg, "ok");
+      if(typeof toast === "function") toast(msg);
+      return msg;
+    }
+    diag += " · 파싱 " + codes + "개";
+  }catch(e){ diag = "CSV 실패: " + (e && e.message ? e.message : e); }
+  // CSV가 10개 미만이면, CORS·리다이렉트에 영향받지 않는 gviz JSONP로 다시 시도한다.
+  try{
+    var gmap = await sheetPriceGviz();
+    var gc = Object.keys(gmap).length;
+    if(gc >= 10){
+      var gupdated = sheetPriceApply(gmap);
+      var gmsg = "시트 가격 연동 완료: " + gupdated + "종목 반영 · 피드 " + gc + "종목";
+      qStatus(gmsg, "ok");
+      if(typeof toast === "function") toast(gmsg);
+      return gmsg;
+    }
+    diag += " · gviz " + gc + "개";
+  }catch(e){ diag += " · gviz 실패: " + (e && e.message ? e.message : e); }
+  throw new Error("가격 피드에서 읽은 종목이 너무 적어요 · " + diag);
 }
 window.sheetPriceSync = sheetPriceSync;
 function sheetPriceButton(){
@@ -3091,7 +3139,7 @@ function quoteInit(){
   [a,b,c].forEach(function(el){if(el){el.addEventListener('change',store);if(el.type==='password')el.addEventListener('input',store)}});
   // 버튼을 누르는 순간 키 입력값을 먼저 저장하여 blur/change 이벤트 순서에 의존하지 않습니다.
   var btn=$('q-run');if(btn)btn.addEventListener('click',function(){store();qRun(null,false)});
-  var sbtn=$('q-sheet-sync');if(sbtn){ sbtn.textContent='시트 가격 가져오기'; sbtn.addEventListener('click',sheetPriceButton); }
+  var sbtn=$('q-sheet-sync');if(sbtn){ sbtn.textContent='시트 가격 가져오기 (v3)'; sbtn.addEventListener('click',sheetPriceButton); }
   qHint();
   var last=0;try{last=+localStorage.getItem(QAUTO)||0}catch(e){}
   if(k.auto!==false&&(k.kr||k.us)&&Date.now()-last>3*3600e3)setTimeout(function(){qRun(null,true)},1500);
