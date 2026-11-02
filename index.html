@@ -732,7 +732,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
   <div class="sec-head">
     <span class="eyebrow">부동산 · 기타 자산</span>
     <h2>부동산 · 예금 · 금 · 가상자산</h2>
-    <p>증권 계좌 밖의 자산을 넣으면 매입가 대비 손익, 연평균 상승률, 대출을 뺀 순자산을 계산합니다. 「연금 시뮬레이션 자산과 연결」을 켜면 현재 시세가 자산 탭 금액에 반영되고, 연결하지 않은 자산은 대시보드에만 더해집니다. 금액 단위는 <b>만원</b>입니다. 시세는 KB부동산·국토교통부 실거래가·한국거래소 금시세 등으로 확인해 넣으세요.</p>
+    <p>증권 계좌 밖의 자산을 넣으면 매입가 대비 손익, 연평균 상승률, 대출을 뺀 순자산을 계산합니다. 「연금 시뮬레이션 자산과 연결」을 켜면 현재 시세가 자산 탭 금액에 반영되고, 연결하지 않은 자산은 대시보드에만 더해집니다. 금액 단위는 <b>만원</b>입니다. 거주 주택·투자 부동산 행에서는 아래 「아파트 실거래가 검색」으로 국토교통부 아파트 실거래가를 조회해 최신 가격을 바로 적용할 수 있습니다. 그 외 자산은 KB부동산·국토교통부 실거래가·한국거래소 금시세 등으로 확인해 넣으세요.</p>
   </div>
   <div class="kpis" id="o-kpis"></div>
   <div class="tbl-wrap" style="margin:14px 0"><table>
@@ -1008,7 +1008,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
       <tr><td class="who">네트워크 연결 실패 / 오프라인 상태</td><td>인터넷이 끊겼거나 브라우저의 CORS 정책이 API 접속을 차단한 경우일 수 있습니다. HTML 파일을 직접 열었다면 localhost 또는 HTTPS 웹서버에서 실행해 보세요. 그래도 안 되면 현재가를 직접 넣으면 됩니다.</td></tr>
     </tbody>
   </table></div>
-  <p class="caption">부동산 시세는 자동으로 가져오지 않습니다. KB부동산 시세나 국토교통부 실거래가 공개시스템에서 확인해 넣으세요.</p>
+  <p class="caption">부동산 시세는 포트폴리오 탭 「부동산 · 기타 자산」에서 아파트 실거래가 검색으로 가져올 수 있습니다. 시세 자동 조회의 공공데이터포털 키를 쓰며, 국토교통부_아파트매매 실거래자료 활용신청이 필요합니다.</p>
 </section>
 
 <section id="g-ai">
@@ -2934,6 +2934,11 @@ function renderOthPanel(){
       '<div class="f chk"><input type="checkbox" id="i-oth-'+o.id+'-sync" data-k="oth.'+o.id+'.sync"'+(o.sync?' checked':'')+'><label for="i-oth-'+o.id+'-sync">현재 시세를 자산 탭 금액에 자동 반영</label></div>'+
       fld('oth.'+o.id+'.memo','메모 (주소·만기·시세 출처 등)',o.memo||'','text')+
       '</div><button class="btn del" type="button" data-odel="'+o.id+'" aria-label="'+esc(o.name||'자산')+' 삭제">✕</button>'+
+      ((o.kind==='home'||o.kind==='realty')?'<div class="card" style="margin-top:10px"><div class="card-head"><h3>아파트 실거래가 검색</h3><button class="btn primary" type="button" data-rtsearch="'+o.id+'">검색</button></div><div class="fields">'+
+      '<div class="f"><label for="rt-lawd-'+o.id+'">시군구 코드 (5자리)</label><input id="rt-lawd-'+o.id+'" type="text" inputmode="numeric" placeholder="예: 11680"><span class="hint">국토부 API는 아파트명만으로 조회하지 않고 시군구 코드가 필요합니다. 예: 강남구 11680, 서초구 11650. 국토부 실거래가 공개시스템에서 지역을 선택하면 주소창 LAWD_CD에서 확인할 수 있어요.</span></div>'+
+      '<div class="f"><label for="rt-apt-'+o.id+'">아파트명 (일부만 입력 가능)</label><input id="rt-apt-'+o.id+'" type="text" placeholder="예: 래미안"><span class="hint">비우면 해당 시군구의 최근 거래를 보여 줍니다.</span></div>'+
+      '<div class="f"><label for="rt-area-'+o.id+'">전용면적 (㎡, 선택)</label><input id="rt-area-'+o.id+'" type="number" inputmode="decimal" placeholder="예: 84"><span class="hint">입력하면 ±1.5㎡ 안의 거래만 보여 줍니다.</span></div>'+
+      '</div><p class="caption" style="margin-top:8px">공공데이터포털 일반 인증키를 씁니다. 같은 키로 국토교통부_아파트매매 실거래자료 활용신청이 되어 있어야 합니다. 키는 이 기기의 브라우저에만 저장됩니다.</p><div data-rtbox="'+o.id+'" style="margin-top:8px"></div></div>':'')+
       '<div class="calc" data-ocalc="'+o.id+'"></div>'+
       (o.link&&lk?'':'<button class="btn ghost" type="button" data-onew="'+o.id+'" style="margin-top:8px">자산 탭에 새 행 만들어 연결</button>')+'</div>';
   }).join('');
@@ -2988,12 +2993,96 @@ document.addEventListener('click',function(e){
   if(t.dataset.odel){
     if(t.dataset.arm!=='1'){t.dataset.arm='1';t.textContent='한 번 더 누르면 삭제';setTimeout(function(){if(t.isConnected){t.dataset.arm='';t.textContent='✕'}},3000);return}
     S.pf.others=S.pf.others.filter(function(o){return o.id!==t.dataset.odel});save();renderOthPanel();renderPfResults();renderResults();toast('자산을 삭제했어요');return}
+  if(t.dataset.rtsearch){rtSearch(t.dataset.rtsearch);return}
+  if(t.dataset.rtapply){
+    var oo=S.pf.others.filter(function(x){return x.id===t.dataset.rtapply})[0];if(!oo)return;
+    var pv=qNumber(t.dataset.rtprice),rd=t.dataset.rtdate||'',rn=t.dataset.rtname||'',ra=t.dataset.rtarea||'',rf=t.dataset.rtfloor||'';
+    if(!(pv>0))return;
+    oo.value=Math.round(pv);
+    var src='실거래가 '+rd+' '+(rn?rn+' ':'')+(ra?ra+'㎡ ':'')+(rf?rf+'층 ':'')+Math.round(pv).toLocaleString('ko-KR')+'만원';
+    oo.memo=(oo.memo?oo.memo.replace(/ · 실거래가 [^·]*/g,'')+' · '+src:src);
+    save();renderOthPanel();renderPfResults();renderResults();toast(src+'으로 적용했어요');return}
   if(t.dataset.onew){
     var o=S.pf.others.filter(function(x){return x.id===t.dataset.onew})[0];if(!o)return;
     var id='a-'+uid(),nm=o.name||OKIND[o.kind];
     S.assets.push({id:id,owner:o.owner,cat:OK2CAT[o.kind]||'etc',name:nm,amount:Math.round(n(o.value)),contrib:0,rate:''});
     o.link=id;o.sync=true;save();renderInputs();renderOthPanel();renderPfResults();renderResults();toast('자산 탭에 「'+nm+'」 행을 만들고 연결했어요');return}
 });
+
+
+/* ================= 아파트 실거래가 검색 (국토교통부) =================
+   공공데이터포털 RTMSDataSvcAptTrade API를 쓴다. 이 API는 아파트명만으로
+   조회하지 않고 시군구 코드(LAWD_CD, 5자리)와 거래년월이 필요하므로,
+   화면에서 시군구 코드를 받고 최근 12개월을 거슬러 조회한 뒤 아파트명·
+   전용면적으로 화면에서 필터링한다. 가격은 dealAmount(만원) 그대로 쓰며,
+   키는 시세 자동 조회의 공공데이터포털 키와 같은 키를 로컬에서만 쓴다. */
+function rtMonths(){
+  var out=[],d=new Date();
+  for(var i=0;i<12;i++){var y=d.getFullYear(),m=d.getMonth()+1-i;while(m<=0){m+=12;y--}out.push(String(y)+String(m).padStart(2,'0'))}
+  return out;
+}
+function rtBox(id){return document.querySelector('[data-rtbox="'+id+'"]')}
+async function rtFetchMonth(lawd,ymd,key){
+  var candidates=qServiceKeyCandidates(key),lastErr=null;
+  for(var i=0;i<candidates.length;i++){
+    var req=new URL('https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade');
+    req.searchParams.set('serviceKey',candidates[i].value);
+    req.searchParams.set('LAWD_CD',lawd);
+    req.searchParams.set('DEAL_YMD',ymd);
+    req.searchParams.set('numOfRows','100');
+    req.searchParams.set('pageNo','1');
+    try{
+      var data=await qJSON(req.toString(),'data');
+      qCheckDataGo(data);
+      return qItems(data);
+    }catch(e){
+      lastErr=e;
+      var msg=String(e&&e.message||e);
+      if(/인증키가 등록되지 않았습니다|SERVICE_KEY_IS_NOT_REGISTERED|등록되지 않은 서비스키|등록되지 않은 서비스 키/i.test(msg)&&i<candidates.length-1)continue;
+      throw e;
+    }
+  }
+  if(lastErr)throw lastErr;
+  return [];
+}
+async function rtSearch(othId){
+  var box=rtBox(othId);if(!box)return;
+  var lawdEl=$('rt-lawd-'+othId),aptEl=$('rt-apt-'+othId),areaEl=$('rt-area-'+othId);
+  var lawd=lawdEl?lawdEl.value.trim():'';
+  var apt=aptEl?aptEl.value.trim():'';
+  var area=areaEl?qNumber(areaEl.value):NaN;
+  if(!/^\d{5}$/.test(lawd)){box.innerHTML='<p class="caption">시군구 코드를 5자리 숫자로 입력하세요. 예: 강남구 11680</p>';return}
+  var krInput=$('q-kr'),keys=qKeys();
+  var key=String(krInput?krInput.value:(keys.kr||'')).trim();
+  if(!key){box.innerHTML='<p class="caption">공공데이터포털 일반 인증키가 필요합니다. 포트폴리오 탭 「시세 자동 조회」 &gt; 「시세 API 키 설정」에 키를 넣고, 국토교통부_아파트매매 실거래자료 활용신청도 확인하세요.</p>';return}
+  box.innerHTML='<p class="caption">최근 실거래가를 조회하는 중입니다…</p>';
+  try{
+    var found=[];
+    var months=rtMonths();
+    for(var mi=0;mi<months.length&&found.length<5;mi++){
+      var items=await rtFetchMonth(lawd,months[mi],key);
+      items.forEach(function(it){
+        var nm=String(it.aptNm||'').trim();
+        if(apt&&nm.replace(/\s+/g,'').toLowerCase().indexOf(apt.replace(/\s+/g,'').toLowerCase())<0)return;
+        var ar=qNumber(it.excluUseAr);
+        if(!isNaN(area)&&!(Math.abs(ar-area)<=1.5))return;
+        var price=qNumber(it.dealAmount);
+        if(!(price>0))return;
+        var dt=String(it.dealYear||'')+'-'+String(it.dealMonth||'').padStart(2,'0')+'-'+String(it.dealDay||'').padStart(2,'0');
+        found.push({date:dt,name:nm,dong:String(it.umdNm||''),area:ar,floor:String(it.floor||''),price:price});
+      });
+    }
+    found.sort(function(a,b){return b.date.localeCompare(a.date)});
+    found=found.slice(0,8);
+    if(!found.length){box.innerHTML='<p class="caption">최근 12개월 안에 조건에 맞는 거래가 없습니다. 아파트명을 줄이거나(단지명 일부), 시군구 코드를 확인하세요.</p>';return}
+    box.innerHTML='<div class="tbl-wrap"><table><thead><tr><th>거래일</th><th>아파트</th><th style="text-align:right">면적</th><th style="text-align:right">층</th><th style="text-align:right">거래가(만원)</th><th></th></tr></thead><tbody>'+
+      found.map(function(r){
+        return '<tr><td>'+esc(r.date)+'</td><td class="who">'+esc(r.name)+'<span class="sub">'+esc(r.dong)+'</span></td><td class="num" style="text-align:right">'+(isNaN(r.area)?'-':r.area.toFixed(1)+'㎡')+'</td><td class="num" style="text-align:right">'+esc(r.floor)+'층</td><td class="num" style="text-align:right"><b>'+Math.round(r.price).toLocaleString('ko-KR')+'</b></td><td><button class="btn primary" type="button" data-rtapply="'+othId+'" data-rtprice="'+r.price+'" data-rtdate="'+esc(r.date)+'" data-rtname="'+esc(r.name)+'" data-rtarea="'+(isNaN(r.area)?'':r.area)+'" data-rtfloor="'+esc(r.floor)+'">이 가격 적용</button></td></tr>';
+      }).join('')+'</tbody></table></div><p class="caption">최신 거래 순입니다. 「이 가격 적용」을 누르면 현재 시세(만원)와 메모의 실거래가 출처가 함께 저장됩니다.</p>';
+  }catch(e){
+    box.innerHTML='<p class="caption">실거래가 조회 실패: '+esc(e&&e.message?e.message:'알 수 없는 오류')+'</p>';
+  }
+}
 
 /* ================= 사용방법 ================= */
 var VERIFY=[ // 2026-10-02 자동 검증 (회차, 입력, 통과/전체, 실패 여부, 결과)
