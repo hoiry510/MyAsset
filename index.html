@@ -3013,7 +3013,7 @@ function sheetSyncButton(){
       if(typeof window.requestSheetToken !== 'function') throw new Error('로그인 후 사용해 주세요.');
       var tok = await window.requestSheetToken();
       await sheetSync(tok);
-    }catch(e){ qStatus('시트 연동 실패: ' + (e && e.message ? e.message : '알 수 없는 오류'), 'crit'); }
+    }catch(e){ var m = e && e.message ? e.message : '알 수 없는 오류'; if(m.indexOf('이동 중') >= 0){ qStatus(m, 'warn'); } else { qStatus('시트 연동 실패: ' + m, 'crit'); } }
   })();
 }
 
@@ -3606,7 +3606,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
   import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js";
-  import { getAuth, onAuthStateChanged, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+  import { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyB9TgiAwsTSjNykHetMhiUAjiO5bnsMrB8",
@@ -3649,13 +3649,20 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
     if(!auth.currentUser) throw new Error('로그인 후 사용해 주세요.');
     var tok = storedSheetToken();
     if(tok) return tok;
-    var result = await reauthenticateWithPopup(auth.currentUser, googleProvider);
-    var cred = GoogleAuthProvider.credentialFromResult(result);
-    var t = cred && cred.accessToken ? cred.accessToken : null;
-    if(!t) throw new Error('시트 읽기 권한을 받지 못했어요 · 다시 로그인해 주세요.');
-    storeSheetToken(t);
-    return t;
+    // 팝업 재인증은 인증 처리 탭이 opener로 돌아오지 못해
+    // auth/popup-closed-by-user로 반복 실패했으므로, 리다이렉트 방식을 쓴다.
+    // 구글 동의 후 페이지로 돌아오면 아래 getRedirectResult가 토큰을 받아
+    // 클라우드 첫 로드 뒤 시트 연동을 자동 실행한다.
+    try{ sessionStorage.setItem('family-pension-sheet-sync-pending', '1'); }catch(e){}
+    await signInWithRedirect(auth, googleProvider);
+    throw new Error('구글 동의 페이지로 이동 중입니다 · 동의 후 돌아오면 시트 연동이 자동으로 진행됩니다.');
   };
+  // 리다이렉트 복귀 시 토큰 회수
+  getRedirectResult(auth).then(function(result){
+    if(!result) return;
+    var cred = GoogleAuthProvider.credentialFromResult(result);
+    if(cred && cred.accessToken){ storeSheetToken(cred.accessToken); sheetSyncDone = false; }
+  }).catch(function(e){ console.error('리다이렉트 결과 확인 실패:', e); });
   var sheetSyncDone = false;
   function trySheetSyncAfterCloud(){
     if(!cloudFirstLoadDone || sheetSyncDone) return;
