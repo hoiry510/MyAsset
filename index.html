@@ -700,7 +700,8 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
   </div>
   <div class="card" style="margin-top:12px"><div class="fields" id="pf-global"></div></div>
   <div class="card" style="margin-top:12px" id="quote-card">
-    <div class="card-head"><h3>시세 자동 조회</h3><button class="btn primary" type="button" id="q-run">지금 시세 가져오기</button></div>
+    <div class="card-head"><h3>시세 자동 조회</h3><div><button class="btn" type="button" id="q-sheet-sync">시트에서 가져오기</button> <button class="btn primary" type="button" id="q-run">지금 시세 가져오기</button></div></div>
+    <p class="caption">시트 연동: 구글 시트 원본에서 가격·종목·수량을 가져옵니다. 로그인할 때 자동으로 연동되고, 새 세션에서는 이 버튼을 한 번 누르면 됩니다. 키는 필요 없습니다.</p>
     <p class="caption" id="q-status" role="status" aria-live="polite" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
@@ -2921,6 +2922,101 @@ async function qRun(only,quiet){
     qBusy=false;if(btn)btn.disabled=false;
   }
 }
+
+/* ================= 구글 시트 원본 연동 =================
+   원본은 구글 시트 Asset List이다. 로그인할 때 받은 시트 읽기 토큰으로
+   시트를 직접 읽어 가격·종목·수량을 가져온다. 키는 필요 없다.
+   시트가 자산 데이터의 기준이 되고, 가족 정보·목표·예산·부동산·기타
+   자산은 건드리지 않는다. 시트에서 사라진 종목은 이 연동에서 제거된다.
+   (가격 목록만으로는 매도인지 오류인지 구분할 수 없으므로, 제거는
+   시트 전체를 읽는 이 연동에서만 한다.)
+*/
+var SHEET_ID = '1gfyyzpbe5auZtKC4msTBZ4Ebil5cJ9GF1HIjJMNWbAw';
+var SHEET_ACCOUNTS = {
+  '[지영]위탁계좌': {id:'ac-w-gen', owner:'w', type:'일반'},
+  '[지영]ISA': {id:'ac-w-isa', owner:'w', type:'ISA'},
+  '[지영]IRP': {id:'ac-w-irp', owner:'w', type:'IRP'},
+  '[호열]위탁계좌': {id:'ac-h-gen', owner:'h', type:'일반'},
+  '[호열]개인연금': {id:'ac-h-pp', owner:'h', type:'연금저축'},
+  '[호열]ISA': {id:'ac-h-isa', owner:'h', type:'ISA'},
+  '[호열]IRP': {id:'ac-h-irp', owner:'h', type:'IRP'},
+  '[호열]CMA': {id:'ac-h-cma', owner:'h', type:'CMA'},
+  '[호열]SG_주식계좌': {id:'ac-h-sg', owner:'h', type:'일반(해외)'},
+  '[증여]규연': {id:'ac-d1-gift-gyuyeon', owner:'d1', type:'연금저축(증여금)'},
+  '[증여]규민': {id:'ac-d2-gift-gyumin', owner:'d2', type:'연금저축(증여금)'}
+};
+function sheetNum(x){ var v = parseFloat(String(x == null ? '' : x).replace(/,/g, '').replace(/원/g, '')); return isFinite(v) ? v : 0; }
+function sheetTodayKST(){ try { return new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Seoul'}); } catch(e){ return new Date().toISOString().slice(0,10); } }
+async function sheetSync(token){
+  if(!token) throw new Error('시트 읽기 토큰이 없습니다. 로그인 후 다시 시도해 주세요.');
+  qStatus('시트에서 가져오는 중입니다…','warn');
+  var url = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID + '/values/' + encodeURIComponent('Asset List!A9:R66') + '?valueRenderOption=UNFORMATTED_VALUE';
+  var res = await fetch(url, {headers:{'Authorization':'Bearer ' + token}});
+  if(!res.ok){
+    var errText = ''; try { errText = await res.text(); } catch(e){}
+    if(res.status === 401) throw new Error('시트 토큰이 만료됐어요 · 「시트에서 가져오기」를 다시 눌러 계정을 한 번 선택해 주세요.');
+    if(res.status === 403) throw new Error('시트 API 접근이 거부됐어요 · 구글 클라우드에서 myasset-db 프로젝트에 Google Sheets API가 켜져 있는지, 로그인 계정이 시트에 접근 가능한지 확인해 주세요.');
+    if(res.status === 404) throw new Error('시트를 찾을 수 없어요 · 시트 ID와 공유 설정을 확인해 주세요.');
+    throw new Error('시트를 읽지 못했어요 (' + res.status + ') ' + errText.slice(0,200));
+  }
+  var data = await res.json();
+  var rows = data.values || [];
+  var accountsMap = {}, holdingsMap = {}, fxCandidate = 0, total = 0;
+  rows.forEach(function(r){
+    r = r || [];
+    var acctName = String(r[1] || '').trim();
+    var meta = SHEET_ACCOUNTS[acctName];
+    if(!meta) return;
+    if(!accountsMap[meta.id]) accountsMap[meta.id] = {id:meta.id, owner:meta.owner, type:meta.type, name:acctName, cash:0, link:'a-' + meta.id.replace(/^ac-/, ''), sync:true};
+    var domestic = String(r[3] || '').trim();
+    var cls = String(r[4] || '').trim();
+    var code = String(r[7] || '').trim().toUpperCase();
+    var name = String(r[8] || '').trim();
+    var qty = sheetNum(r[9]), price = sheetNum(r[10]), avg = sheetNum(r[11]), evalV = sheetNum(r[14]);
+    if(code === 'USD' && price > 100) fxCandidate = price;
+    var isCash = (cls === '현금' || code === 'WON' || code === 'USD' || code === '' || name === '현금예수금');
+    if(isCash){ accountsMap[meta.id].cash += evalV; total += evalV; return; }
+    if(!code || qty <= 0) return;
+    if(price <= 0 && evalV > 0) price = evalV / qty;
+    var key = meta.id + '|' + code;
+    if(!holdingsMap[key]) holdingsMap[key] = {id:'h-' + meta.id + '-' + code.replace(/[^A-Z0-9]/g, ''), acc:meta.id, code:code, name:name || code, cls:domestic === '해외' ? 'gl' : 'kr', cur:'KRW', qty:0, avg:0, price:price, _cost:0};
+    var h = holdingsMap[key];
+    h.qty += qty; h._cost += qty * avg; h.price = price; if(name) h.name = name; if(domestic === '해외') h.cls = 'gl';
+    total += qty * price;
+  });
+  var accounts = Object.keys(accountsMap).map(function(k){ return accountsMap[k]; });
+  var holdings = Object.keys(holdingsMap).map(function(k){ var h = holdingsMap[k]; h.avg = h.qty > 0 ? h._cost / h.qty : 0; delete h._cost; return h; });
+  if(accounts.length < 5 || holdings.length < 10 || total < 100000000) throw new Error('시트에서 읽은 데이터가 너무 적어요 (' + accounts.length + '계좌 · ' + holdings.length + '종목) · 덮어쓰지 않고 중단했어요.');
+  var assets = accounts.map(function(a){
+    var val = a.cash + holdings.filter(function(h){ return h.acc === a.id; }).reduce(function(s, h){ return s + h.qty * h.price; }, 0);
+    var cat = (a.type === '연금저축' || a.type === 'IRP' || a.type === '연금저축(증여금)') ? 'pp' : 'fin';
+    return {id:a.link, owner:a.owner, cat:cat, name:a.name, amount:Math.round(val / 10000), contrib:0, rate:''};
+  });
+  S.assets = assets;
+  S.pf.accounts = accounts;
+  S.pf.holdings = holdings;
+  if(fxCandidate > 0) S.pf.fx = fxCandidate;
+  S.pf.priceDate = sheetTodayKST();
+  applySync();
+  if(typeof renderInputs === 'function') renderInputs();
+  renderPfInputs(); renderResults(); renderPfResults();
+  save();
+  var msg = '시트 연동 완료: ' + accounts.length + '계좌 · ' + holdings.length + '종목 · 합계 ' + Math.round(total / 10000).toLocaleString('ko-KR') + '만원';
+  qStatus(msg, 'ok');
+  if(typeof toast === 'function') toast(msg);
+  return msg;
+}
+window.sheetSync = sheetSync;
+function sheetSyncButton(){
+  (async function(){
+    try{
+      if(typeof window.requestSheetToken !== 'function') throw new Error('로그인 후 사용해 주세요.');
+      var tok = await window.requestSheetToken();
+      await sheetSync(tok);
+    }catch(e){ qStatus('시트 연동 실패: ' + (e && e.message ? e.message : '알 수 없는 오류'), 'crit'); }
+  })();
+}
+
 function quoteInit(){
   var k=qKeys(),a=$('q-kr'),b=$('q-us'),c=$('q-auto');
   if(a)a.value=k.kr||'';if(b)b.value=k.us||'';if(c)c.checked=k.auto!==false;
@@ -2928,6 +3024,7 @@ function quoteInit(){
   [a,b,c].forEach(function(el){if(el){el.addEventListener('change',store);if(el.type==='password')el.addEventListener('input',store)}});
   // 버튼을 누르는 순간 키 입력값을 먼저 저장하여 blur/change 이벤트 순서에 의존하지 않습니다.
   var btn=$('q-run');if(btn)btn.addEventListener('click',function(){store();qRun(null,false)});
+  var sbtn=$('q-sheet-sync');if(sbtn)sbtn.addEventListener('click',sheetSyncButton);
   qHint();
   var last=0;try{last=+localStorage.getItem(QAUTO)||0}catch(e){}
   if(k.auto!==false&&(k.kr||k.us)&&Date.now()-last>3*3600e3)setTimeout(function(){qRun(null,true)},1500);
@@ -3509,7 +3606,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
   import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js";
-  import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+  import { getAuth, onAuthStateChanged, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyB9TgiAwsTSjNykHetMhiUAjiO5bnsMrB8",
@@ -3534,6 +3631,42 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   // 로그인 코드 배포 뒤에 규칙을 게시해도 동작이 끊기지 않는다.
   const auth = getAuth(app);
   const googleProvider = new GoogleAuthProvider();
+  googleProvider.addScope('https://www.googleapis.com/auth/spreadsheets.readonly');
+  function storeSheetToken(token){
+    try{
+      window.sheetAccessToken = token || null;
+      if(token){ sessionStorage.setItem('family-pension-sheet-token', token); sessionStorage.setItem('family-pension-sheet-token-exp', String(Date.now() + 3300 * 1000)); }
+    }catch(e){}
+  }
+  function storedSheetToken(){
+    try{
+      var exp = +(sessionStorage.getItem('family-pension-sheet-token-exp') || 0);
+      if(exp && Date.now() < exp) return sessionStorage.getItem('family-pension-sheet-token');
+    }catch(e){}
+    return window.sheetAccessToken || null;
+  }
+  window.requestSheetToken = async function(){
+    if(!auth.currentUser) throw new Error('로그인 후 사용해 주세요.');
+    var tok = storedSheetToken();
+    if(tok) return tok;
+    var result = await reauthenticateWithPopup(auth.currentUser, googleProvider);
+    var cred = GoogleAuthProvider.credentialFromResult(result);
+    var t = cred && cred.accessToken ? cred.accessToken : null;
+    if(!t) throw new Error('시트 읽기 권한을 받지 못했어요 · 다시 로그인해 주세요.');
+    storeSheetToken(t);
+    return t;
+  };
+  var sheetSyncDone = false;
+  function trySheetSyncAfterCloud(){
+    if(!cloudFirstLoadDone || sheetSyncDone) return;
+    var tok = storedSheetToken();
+    if(!tok || typeof window.sheetSync !== 'function') return;
+    sheetSyncDone = true;
+    window.sheetSync(tok).catch(function(e){
+      var st = document.getElementById('status');
+      if(st) st.textContent = '시트 연동 실패: ' + (e && e.message ? e.message : '알 수 없는 오류');
+    });
+  }
   window.firebaseAuthUser = null;
   window.firebaseAuthReady = false;
   function setAuthStatus(txt){ const s = document.getElementById('status'); if (s) s.textContent = txt; }
@@ -3547,11 +3680,14 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
     authBtn.addEventListener('click', async () => {
       try {
         if (auth.currentUser) {
+          try{ sessionStorage.removeItem('family-pension-sheet-token'); sessionStorage.removeItem('family-pension-sheet-token-exp'); }catch(e){} window.sheetAccessToken = null; sheetSyncDone = false;
           await signOut(auth);
           // 로그아웃하면 표시 중이던 데이터를 메모리에서 지우기 위해 새로고침한다.
           location.reload();
         } else {
-          await signInWithPopup(auth, googleProvider);
+          var signResult = await signInWithPopup(auth, googleProvider);
+          var signCred = GoogleAuthProvider.credentialFromResult(signResult);
+          if(signCred && signCred.accessToken) storeSheetToken(signCred.accessToken);
         }
       } catch (e) {
         console.error("로그인 실패:", e);
@@ -3574,6 +3710,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
       const data = snapshot.val();
       if (!cloudFirstLoadDone) {
         cloudFirstLoadDone = true;
+        setTimeout(trySheetSyncAfterCloud, 300);
         if (typeof window.__firebaseFirstLoad === 'function') window.__firebaseFirstLoad(!!data);
       }
       // 내가 저장 중(writeCount > 0)이 아닐 때만 외부 데이터 수신
