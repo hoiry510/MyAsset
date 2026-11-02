@@ -1168,7 +1168,9 @@ var CATS={ret:'퇴직연금(DC·IRP)',yu:'노란우산공제',pp:'개인연금(�
 /* ================= 상태 ================= */
 var S;
 function load(){
-  try{var raw=localStorage.getItem(STORE)||localStorage.getItem('family-pension-v2');if(raw){var o=JSON.parse(raw);if(o&&(o.v===2||o.v===3)&&o.people)return merge(o)}}catch(e){}
+  // Firebase 전용: 연금 데이터는 localStorage에서 읽지 않는다.
+  // 초기 화면은 기본값으로만 그리고, Firebase 첫 스냅샷이 도착하면 그 데이터로 교체한다.
+  // (클라우드에 데이터가 없고 이전 로컬 데이터만 있는 경우는, 첫 스냅샷 때 한 번만 클라우드로 옮긴다. 아래 __firebaseFirstLoad 참조)
   return defaults();
 }
 function merge(o) {
@@ -1245,18 +1247,50 @@ function merge(o) {
   return o;
 }
 var saveT;
-function saveLocal(){  
- clearTimeout(saveT);  
- saveT=setTimeout(function(){  
- try{localStorage.setItem(STORE,JSON.stringify(S));try{localStorage.removeItem('family-pension-v2')}catch(e2){}$('status').textContent='자동 저장됨 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}  
- catch(e){$('status').textContent='이 브라우저는 자동 저장을 막았어요. 데이터 내보내기로 백업하세요.'}  
- 
- // Firebase에 데이터 전송 (연동이 완료된 상태일 때만)
- if(window.saveToFirebase) {
-   window.saveToFirebase(JSON.parse(JSON.stringify(S)));
- }
- },250);  
-}  
+var cloudSavePending=false;
+function saveLocal(){
+  // Firebase 전용 저장: 연금 데이터를 localStorage에 쓰지 않는다.
+  // Firebase 모듈이 아직 로드되지 않았으면 메모리(cloudSavePending)에만 보류하고,
+  // 첫 스냅샷이 도착했을 때 __firebaseFirstLoad가 보류분을 처리한다.
+  clearTimeout(saveT);
+  saveT=setTimeout(function(){
+    if(typeof window.saveToFirebase==='function'){
+      cloudSavePending=false;
+      try{ window.saveToFirebase(JSON.parse(JSON.stringify(S))); }
+      catch(e){ var st=$('status'); if(st) st.textContent='클라우드 저장 실패 · 다시 시도하세요.'; }
+    } else {
+      cloudSavePending=true;
+      var st2=$('status'); if(st2) st2.textContent='클라우드 연결 대기 중 · 아직 저장되지 않았어요';
+    }
+  },250);
+}
+// Firebase 첫 스냅샷 때 모듈 스크립트에서 호출한다.
+window.__firebaseFirstLoad=function(hasData){
+  window.cloudLoaded=true;
+  if(!hasData){
+    // 클라우드가 비어 있을 때만, 이전에 이 브라우저에만 있던 데이터를 한 번만 클라우드로 옮긴다.
+    // 이후부터는 로컬을 읽지 않는다.
+    try{
+      var raw=null;
+      try{ raw=localStorage.getItem(STORE)||localStorage.getItem('family-pension-v2'); }catch(e){}
+      if(raw){
+        var o=JSON.parse(raw);
+        if(o&&(o.v===2||o.v===3)&&o.people){
+          S=merge(o); applySync(); renderInputs(); renderPfInputs(); renderResults(); renderPfResults(); renderBudget(); renderGoals(); buildNav(curView);
+          cloudSavePending=false; saveLocal();
+          var st3=$('status'); if(st3) st3.textContent='이전 로컬 데이터를 클라우드로 옮겼어요';
+          return;
+        }
+      }
+    }catch(e){}
+    if(cloudSavePending){ cloudSavePending=false; saveLocal(); }
+    else { var st4=$('status'); if(st4) st4.textContent='Firebase · 아직 저장된 내용 없음'; }
+  } else if(cloudSavePending){
+    // 클라우드 데이터가 이미 있는데 불러오기 전에 바꾼 내용이 있으면, 클라우드를 덮어쓰지 않고 보류분을 버린다.
+    cloudSavePending=false;
+    var st5=$('status'); if(st5) st5.textContent='클라우드 데이터를 불러왔어요 · 불러오기 전 변경은 저장되지 않았어요';
+  }
+};  
 
 // Firebase에서 변경된 데이터를 수신하면 화면에 바로 반영하는 함수
 
@@ -2190,7 +2224,7 @@ document.addEventListener('click',function(e){
 var CLOUD={db:null,ref:null,sample:null,dl:null,clientId:uid(),lastRev:'',writing:false,pending:false,canWrite:true,queued:null,ctrl:null,t:null,everSynced:false};
 function setStatus(txt){var s=$('status');if(s)s.textContent=txt}
 function nowHM(){return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}
-function save(){if(CLOUD.db){clearTimeout(CLOUD.t);setStatus('저장 대기…');CLOUD.t=setTimeout(pushCloud,1200)}else saveLocal()}
+function save(){ saveLocal(); } // Firebase 전용: Claude 공유 저장 경로도 쓰지 않는다.
 async function pushCloud(){
   if(!CLOUD.db)return;
   if(!CLOUD.canWrite){setStatus('보기 전용 · 바꾼 내용은 저장되지 않아요');return}
@@ -3339,8 +3373,13 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   let writeCount = 0; 
 
   // [수정 2] onValue 수신부 덮어쓰기
+  let cloudFirstLoadDone = false;
   onValue(dataRef, (snapshot) => {
     const data = snapshot.val();
+    if (!cloudFirstLoadDone) {
+      cloudFirstLoadDone = true;
+      if (typeof window.__firebaseFirstLoad === 'function') window.__firebaseFirstLoad(!!data);
+    }
     // 내가 저장 중(writeCount > 0)이 아닐 때만 외부 데이터 수신
     if (data && writeCount === 0) {
       if (window.applyFirebaseData) {
@@ -3348,6 +3387,9 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
         const s = document.getElementById('status');
         if (s) s.textContent = 'Firebase 동기화 완료';
       }
+    } else if (!data) {
+      const s2 = document.getElementById('status');
+      if (s2 && !window.__firebaseFirstLoad) s2.textContent = 'Firebase · 아직 저장된 내용 없음';
     }
   });
 
@@ -3361,6 +3403,8 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
       })
       .catch((error) => {
         console.error("Firebase 동기화 실패:", error);
+        const s = document.getElementById('status');
+        if (s) s.textContent = 'Firebase 저장 실패 · 콘솔을 확인하세요';
       })
       .finally(() => {
         // 저장이 완료되고 1초 뒤에 카운터 -1 (여유 시간 확보)
