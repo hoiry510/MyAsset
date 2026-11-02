@@ -705,7 +705,7 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
     <details id="q-keys"><summary class="caption"><b>시세 API 키 설정</b> (처음 한 번, 무료)</summary>
       <div class="fields" style="margin-top:10px">
         <div class="f"><label for="q-kr">국내 종목·ETF: 공공데이터포털 일반 인증키</label><input id="q-kr" type="password" autocomplete="off" placeholder="일반 인증키 (Encoding 또는 Decoding)"><span class="hint">보통주는 금융위원회_주식시세정보, ETF·ETN·ELW는 금융위원회_증권상품시세정보 API를 사용합니다. 두 서비스의 활용신청을 확인해 주세요. Decoding 키는 URLSearchParams로 전송하며, 포털 미리보기와 같은 XML 기본응답을 요청합니다. 조회 시 현재 입력란의 키를 직접 사용합니다.</span></div>
-        <div class="f"><label for="q-us">해외 종목·환율: Twelve Data API 키</label><input id="q-us" type="password" autocomplete="off" placeholder="API key"><span class="hint">twelvedata.com 무료 가입 → Dashboard의 API Keys. 무료는 하루 800건, 분당 8건</span></div>
+        <div class="f"><label for="q-us">해외 종목·환율·국내 주식 대체: Twelve Data API 키</label><input id="q-us" type="password" autocomplete="off" placeholder="API key"><span class="hint">twelvedata.com 무료 가입 → Dashboard의 API Keys. 무료는 하루 800건, 분당 8건. 국내 주식은 공공데이터 조회가 실패하면 이 키로 Twelve Data(KRX)에서 대체 조회합니다.</span></div>
         <div class="f chk"><input type="checkbox" id="q-auto" checked><label for="q-auto">파일을 열 때 자동으로 시세 갱신 (3시간마다)</label></div>
       </div>
       <p class="caption">키는 이 기기의 브라우저에만 저장되고, 데이터 내보내기 파일과 공유 저장소에는 들어가지 않습니다. 시세를 조회할 때 외부로 나가는 정보는 종목코드뿐이고 수량·매입가·금액은 전송되지 않습니다. 국내 시세는 <b>전 영업일 종가</b>(다음 영업일 오후 1시쯤 갱신), 해외는 최근 거래가입니다. 브라우저가 CORS로 외부 API를 차단하면 localhost 또는 HTTPS 웹서버에서 열어 주세요. 공개 배포용이라면 API 키를 서버 측에 두는 방식을 권장합니다.</p>
@@ -2812,6 +2812,29 @@ async function qUsOne(ticker,apiKey){
   if(!(price>0))throw new Error('Twelve Data 응답에 유효한 가격(price/close)이 없습니다. 응답 상태: '+String(data&&data.status||'미확인'));
   return {price:price,name:String(data.name||data.symbol||code),date:qIso(data.datetime||data.date||''),source:'Twelve Data',code:code};
 }
+async function qTwelveKrOne(code,apiKey){
+  // 국내 6자리 코드를 Twelve Data(KRX)에서 조회한다. 공공데이터가
+  // 실패했을 때의 대체 경로이며, 해외 종목과 같은 Twelve Data 키를 쓴다.
+  // 심볼 형식은 문서상 '종목:거래소' 형태와 exchange 파라미터 형태가
+  // 모두 쓰이므로, 순서대로 시도해 처음 성공한 결과를 쓴다.
+  code=String(code||'').trim().toUpperCase();
+  if(!/^\d{6}$/.test(code))throw new Error('국내 종목코드는 숫자 6자리여야 합니다. 예: 005930');
+  if(!String(apiKey||'').trim())throw new Error('Twelve Data API 키가 없습니다. 시세 API 키 설정에서 해외 종목·환율 키를 입력해 주세요.');
+  await qTwelveSlot();
+  var variants=[{symbol:code,exchange:'KRX'},{symbol:code+':KRX'},{symbol:code}];
+  var lastErr=null;
+  for(var i=0;i<variants.length;i++){
+    try{
+      var data=await qJSON(qTwelveUrl('quote',variants[i],apiKey),'twelve');
+      if(data&&String(data.status||'').toLowerCase()==='error')throw new Error(qTwelveError(data));
+      var price=qNumber(data&&(data.price||data.close||data.previous_close||data.last));
+      if(!(price>0))throw new Error('Twelve Data 응답에 유효한 가격(price/close)이 없습니다.');
+      return {price:price,name:String(data.name||data.symbol||code),date:qIso(data.datetime||data.date||''),source:'Twelve Data',code:code};
+    }catch(e){lastErr=e}
+  }
+  if(lastErr)throw lastErr;
+  throw new Error('Twelve Data에서 '+code+' 종목의 시세를 찾지 못했습니다.');
+}
 async function qFxOne(apiKey){
   if(!String(apiKey||'').trim())throw new Error('환율 조회에는 Twelve Data API 키가 필요합니다.');
   await qTwelveSlot();
@@ -2836,13 +2859,13 @@ async function qRun(only,quiet){
   var krCodes=[],usCodes=[],seenKr={},seenUs={},errs=[],updated=0,fxUpdated=false,got={};
   hs.forEach(function(h){var c=String(h.code||'').trim().toUpperCase(),mk=qMarket(h);if(mk==='kr'&&!seenKr[c]){seenKr[c]=1;krCodes.push(c)}else if(mk==='us'&&!seenUs[c]){seenUs[c]=1;usCodes.push(c)}});
   if(!only){
-    krCodes.forEach(function(c){if(!krKey)errs.push(c+': 국내 시세 API 키 없음')});
+    krCodes.forEach(function(c){if(!krKey&&!usKey)errs.push(c+': 국내·Twelve Data 시세 API 키 없음')});
     usCodes.forEach(function(c){if(!usKey)errs.push(c+': 해외 시세 API 키 없음')});
   }else{
-    if(krCodes.length&&!krKey)errs.push(krCodes[0]+': 국내 시세 API 키 없음');
+    if(krCodes.length&&!krKey&&!usKey)errs.push(krCodes[0]+': 국내·Twelve Data 시세 API 키 없음');
     if(usCodes.length&&!usKey)errs.push(usCodes[0]+': 해외 시세 API 키 없음');
   }
-  var validKr=krKey?krCodes:[],validUs=usKey?usCodes:[];
+  var validKr=(krKey||usKey)?krCodes:[],validUs=usKey?usCodes:[];
   var doFx=!only&&!!usKey;
   if(!validKr.length&&!validUs.length&&!doFx){
     var noCodes=!hs.length;
@@ -2854,7 +2877,15 @@ async function qRun(only,quiet){
   try{
     for(var i=0;i<validKr.length;i++){
       var code=validKr[i];
-      try{var res=await qKrOne(code,krKey);if(res&&res.price>0){res._market='kr';got[code]=res;}else throw new Error('가격 데이터가 비어 있습니다.')}catch(e){errs.push(code+': '+(e&&e.message?e.message:'알 수 없는 오류'))}
+      var krRes=null,krErr=null;
+      if(krKey){
+        try{krRes=await qKrOne(code,krKey)}catch(e){krErr=e}
+      }
+      if(!krRes&&usKey){
+        try{krRes=await qTwelveKrOne(code,usKey)}catch(e){krErr=krErr?new Error((krErr.message||krErr)+' · Twelve Data 대체 실패: '+(e.message||e)):e}
+      }
+      if(!krRes&&!krKey&&!usKey)krErr=new Error('국내·Twelve Data 시세 API 키 없음');
+      try{if(krRes&&krRes.price>0){krRes._market='kr';got[code]=krRes;}else throw new Error('가격 데이터가 비어 있습니다.')}catch(e){errs.push(code+': '+((krErr&&krErr.message?krErr.message:'')||(e&&e.message?e.message:'알 수 없는 오류')))}
       if(i<validKr.length-1)await qWait(180);
     }
     for(var j=0;j<validUs.length;j++){
