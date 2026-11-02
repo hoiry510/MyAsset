@@ -355,13 +355,14 @@ tr.on td{background:var(--g-soft,var(--panel-in))}
 <div class="masthead" id="masthead">
 <div class="toolbar" role="toolbar" aria-label="파일">
   <span class="title">3대 가족 연금 설계</span>
-  <span class="status" id="status">자동 저장됨</span>
+  <span class="status" id="status">구글 로그인 후 데이터를 불러올 수 있어요</span>
   <button class="btn" type="button" id="btn-export">데이터 내보내기</button>
   <label class="btn" for="file-import" style="display:inline-flex;align-items:center">데이터 불러오기</label>
   <input type="file" id="file-import" accept=".json,application/json" hidden>
   <button class="btn" type="button" id="btn-print">리포트 인쇄</button>
   <button class="btn ghost" type="button" id="btn-clear-ex" hidden>예시 이력 지우기</button>
   <button class="btn ghost" type="button" id="btn-reset">예시로 초기화</button>
+  <button class="btn" type="button" id="btn-auth">구글 로그인</button>
 </div>
 <nav class="views" role="tablist" aria-label="화면">
   <button class="view-btn" type="button" role="tab" id="vb-main" data-view="main" aria-selected="true">대시보드 · 연금 시뮬레이션</button>
@@ -1254,7 +1255,10 @@ function saveLocal(){
   // 첫 스냅샷이 도착했을 때 __firebaseFirstLoad가 보류분을 처리한다.
   clearTimeout(saveT);
   saveT=setTimeout(function(){
-    if(typeof window.saveToFirebase==='function'){
+    if(window.firebaseAuthReady && !window.firebaseAuthUser){
+      cloudSavePending=true;
+      var stA=$('status'); if(stA) stA.textContent='로그인 후 저장할 수 있어요';
+    } else if(typeof window.saveToFirebase==='function'){
       cloudSavePending=false;
       try{ window.saveToFirebase(JSON.parse(JSON.stringify(S))); }
       catch(e){ var st=$('status'); if(st) st.textContent='클라우드 저장 실패 · 다시 시도하세요.'; }
@@ -3353,6 +3357,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
   import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-database.js";
+  import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyB9TgiAwsTSjNykHetMhiUAjiO5bnsMrB8",
@@ -3372,29 +3377,90 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   // [수정 1] boolean 대신 카운터 변수 사용
   let writeCount = 0; 
 
-  // [수정 2] onValue 수신부 덮어쓰기
-  let cloudFirstLoadDone = false;
-  onValue(dataRef, (snapshot) => {
-    const data = snapshot.val();
-    if (!cloudFirstLoadDone) {
-      cloudFirstLoadDone = true;
-      if (typeof window.__firebaseFirstLoad === 'function') window.__firebaseFirstLoad(!!data);
-    }
-    // 내가 저장 중(writeCount > 0)이 아닐 때만 외부 데이터 수신
-    if (data && writeCount === 0) {
-      if (window.applyFirebaseData) {
-        window.applyFirebaseData(data);
-        const s = document.getElementById('status');
-        if (s) s.textContent = 'Firebase 동기화 완료';
+  // 구글 로그인: 인증 전에는 데이터를 읽지도, 쓰지도 않는다.
+  // 규칙을 게시하기 전(공개 상태)에도 로그인 없이는 데이터를 불러오지 않으므로,
+  // 로그인 코드 배포 뒤에 규칙을 게시해도 동작이 끊기지 않는다.
+  const auth = getAuth(app);
+  const googleProvider = new GoogleAuthProvider();
+  window.firebaseAuthUser = null;
+  window.firebaseAuthReady = false;
+  function setAuthStatus(txt){ const s = document.getElementById('status'); if (s) s.textContent = txt; }
+  function updateAuthButton(){
+    const b = document.getElementById('btn-auth');
+    if (!b) return;
+    b.textContent = window.firebaseAuthUser ? ('로그아웃 (' + (window.firebaseAuthUser.email || '') + ')') : '구글 로그인';
+  }
+  const authBtn = document.getElementById('btn-auth');
+  if (authBtn) {
+    authBtn.addEventListener('click', async () => {
+      try {
+        if (auth.currentUser) {
+          await signOut(auth);
+          // 로그아웃하면 표시 중이던 데이터를 메모리에서 지우기 위해 새로고침한다.
+          location.reload();
+        } else {
+          await signInWithPopup(auth, googleProvider);
+        }
+      } catch (e) {
+        console.error("로그인 실패:", e);
+        let msg = '로그인에 실패했어요';
+        if (e && e.code === 'auth/unauthorized-domain') msg = '이 도메인은 로그인 허용 도메인에 없어요 · 콘솔 Authorized domains에 hoiry510.github.io를 추가하세요';
+        else if (e && e.code === 'auth/operation-not-allowed') msg = '구글 로그인이 콘솔에서 켜져 있지 않아요';
+        else if (e && e.code === 'auth/popup-closed-by-user') msg = '로그인 팝업을 닫았어요';
+        else if (e && e.code === 'auth/popup-blocked') msg = '팝업이 차단됐어요 · 브라우저 팝업 차단을 해제하고 다시 시도하세요';
+        setAuthStatus(msg);
       }
-    } else if (!data) {
-      const s2 = document.getElementById('status');
-      if (s2 && !window.__firebaseFirstLoad) s2.textContent = 'Firebase · 아직 저장된 내용 없음';
+    });
+  }
+
+  // [수정 2] onValue 수신부: 로그인 후에만 등록한다.
+  let cloudFirstLoadDone = false;
+  let unsubscribeData = null;
+  function startDataListener() {
+    if (unsubscribeData) return;
+    unsubscribeData = onValue(dataRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!cloudFirstLoadDone) {
+        cloudFirstLoadDone = true;
+        if (typeof window.__firebaseFirstLoad === 'function') window.__firebaseFirstLoad(!!data);
+      }
+      // 내가 저장 중(writeCount > 0)이 아닐 때만 외부 데이터 수신
+      if (data && writeCount === 0) {
+        if (window.applyFirebaseData) {
+          window.applyFirebaseData(data);
+          const s = document.getElementById('status');
+          if (s) s.textContent = 'Firebase 동기화 완료';
+        }
+      } else if (!data) {
+        const s2 = document.getElementById('status');
+        if (s2 && !window.__firebaseFirstLoad) s2.textContent = 'Firebase · 아직 저장된 내용 없음';
+      }
+    }, (error) => {
+      console.error("Firebase 읽기 실패:", error);
+      if (error && error.code === 'PERMISSION_DENIED') setAuthStatus('이 계정은 가족 허용 목록에 없어요 · 가족 계정으로 다시 로그인하세요');
+      else setAuthStatus('데이터를 불러오지 못했어요 · 다시 로그인해 보세요');
+    });
+  }
+  onAuthStateChanged(auth, (user) => {
+    window.firebaseAuthUser = user || null;
+    window.firebaseAuthReady = true;
+    updateAuthButton();
+    if (!user) {
+      if (unsubscribeData) { unsubscribeData(); unsubscribeData = null; }
+      cloudFirstLoadDone = false;
+      setAuthStatus('구글 로그인 후 데이터를 불러올 수 있어요');
+      return;
     }
+    setAuthStatus('로그인됨 · 데이터 불러오는 중…');
+    startDataListener();
   });
 
   // [수정 3] saveToFirebase 송신부 덮어쓰기
   window.saveToFirebase = function(payload) {
+    if (!auth.currentUser) {
+      setAuthStatus('로그인 후 저장할 수 있어요');
+      return;
+    }
     writeCount++; // 저장 시작 시 카운터 +1
     set(dataRef, payload)
       .then(() => {
@@ -3404,7 +3470,7 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
       .catch((error) => {
         console.error("Firebase 동기화 실패:", error);
         const s = document.getElementById('status');
-        if (s) s.textContent = 'Firebase 저장 실패 · 콘솔을 확인하세요';
+        if (s) s.textContent = (error && error.code === 'PERMISSION_DENIED') ? '저장 권한이 없어요 · 가족 허용 목록에 있는 계정인지 확인하세요' : 'Firebase 저장 실패 · 콘솔을 확인하세요';
       })
       .finally(() => {
         // 저장이 완료되고 1초 뒤에 카운터 -1 (여유 시간 확보)
