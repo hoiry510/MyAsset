@@ -2945,7 +2945,7 @@ var SHEET_ACCOUNTS = {
   '[증여]규연': {id:'ac-d1-gift-gyuyeon', owner:'d1', type:'연금저축(증여금)'},
   '[증여]규민': {id:'ac-d2-gift-gyumin', owner:'d2', type:'연금저축(증여금)'}
 };
-function sheetNum(x){ var v = parseFloat(String(x == null ? '' : x).replace(/,/g, '').replace(/원/g, '')); return isFinite(v) ? v : 0; }
+function sheetNum(x){ var v = parseFloat(String(x == null ? '' : x).replace(/"/g, '').replace(/,/g, '').replace(/원/g, '')); return isFinite(v) ? v : 0; }
 function sheetTodayKST(){ try { return new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Seoul'}); } catch(e){ return new Date().toISOString().slice(0,10); } }
 async function sheetSync(token){
   if(!token) throw new Error('시트 읽기 토큰이 없습니다. 로그인 후 다시 시도해 주세요.');
