@@ -3659,9 +3659,27 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   };
   // 리다이렉트 복귀 시 토큰 회수
   getRedirectResult(auth).then(function(result){
-    if(!result) return;
+    // 이전 버그: 토큰을 저장만 하고 연동을 다시 시도하지 않아,
+    // 클라우드 첫 로드가 이미 끝난 경우 연동이 영영 실행되지 않았다.
+    // 토큰이 도착하면 클라우드 로드 여부와 무관하게 다시 시도한다.
+    if(!result){
+      try{
+        if(sessionStorage.getItem('family-pension-sheet-sync-pending') === '1'){
+          sessionStorage.removeItem('family-pension-sheet-sync-pending');
+          if(typeof qStatus === 'function') qStatus('리다이렉트에서 시트 토큰을 받지 못했어요 · 「시트에서 가져오기」를 다시 눌러주세요.', 'warn');
+        }
+      }catch(e){}
+      return;
+    }
     var cred = GoogleAuthProvider.credentialFromResult(result);
-    if(cred && cred.accessToken){ storeSheetToken(cred.accessToken); sheetSyncDone = false; }
+    if(cred && cred.accessToken){
+      storeSheetToken(cred.accessToken); sheetSyncDone = false;
+      try{ sessionStorage.removeItem('family-pension-sheet-sync-pending'); }catch(e){}
+      setTimeout(trySheetSyncAfterCloud, 300);
+    } else {
+      try{ sessionStorage.removeItem('family-pension-sheet-sync-pending'); }catch(e){}
+      if(typeof qStatus === 'function') qStatus('리다이렉트에서 시트 토큰을 받지 못했어요 · 「시트에서 가져오기」를 다시 눌러주세요.', 'warn');
+    }
   }).catch(function(e){ console.error('리다이렉트 결과 확인 실패:', e); });
   var sheetSyncDone = false;
   function trySheetSyncAfterCloud(){
