@@ -2702,8 +2702,17 @@ async function qJSON(url,provider,retried){
 function qCheckDataGo(data){
   var h=(data&&data.response&&data.response.header)||(data&&data.header)||{};
   var c=String(h.resultCode||'');
-  if(data&&data.OpenAPI_ServiceResponse)throw new Error(qDataGoError(data));
-  if(c&&c!=='00'&&c!=='0')throw new Error(qDataGoError(data));
+  // 국토부 RTMS API는 성공 코드로 '000'(메시지 OK)을 쓴다. 기존 코드는
+  // 주식 API의 '00'만 성공으로 봐서, 성공 응답을 오류로 처리해
+  // '공공데이터 API 오류 (000) · OK'가 떴다. 거래가 없는 달도
+  // OpenAPI 형태의 '000' 성공 응답으로 오므로, 그 경우도 오류가
+  // 아니라 빈 결과로 취급해야 다음 달 조회를 계속할 수 있다.
+  if(data&&data.OpenAPI_ServiceResponse){
+    var oc=String((data.OpenAPI_ServiceResponse.cmmMsgHeader||{}).returnReasonCode||'');
+    if(oc==='000'||oc==='00'||oc==='0')return;
+    throw new Error(qDataGoError(data));
+  }
+  if(c&&c!=='00'&&c!=='000'&&c!=='0')throw new Error(qDataGoError(data));
   var status=String(data&&data.status||'').toLowerCase();
   if(status==='error')throw new Error(qDataGoError(data));
 }
