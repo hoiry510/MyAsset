@@ -3675,7 +3675,9 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
     if(cred && cred.accessToken){
       storeSheetToken(cred.accessToken); sheetSyncDone = false;
       try{ sessionStorage.removeItem('family-pension-sheet-sync-pending'); }catch(e){}
+      if(typeof qStatus === 'function') qStatus('리다이렉트 토큰 받음 · 시트 연동 준비 중…', 'warn');
       setTimeout(trySheetSyncAfterCloud, 300);
+      setTimeout(trySheetSyncAfterCloud, 3000);
     } else {
       try{ sessionStorage.removeItem('family-pension-sheet-sync-pending'); }catch(e){}
       if(typeof qStatus === 'function') qStatus('리다이렉트에서 시트 토큰을 받지 못했어요 · 「시트에서 가져오기」를 다시 눌러주세요.', 'warn');
@@ -3685,11 +3687,18 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
   function trySheetSyncAfterCloud(){
     if(!cloudFirstLoadDone || sheetSyncDone) return;
     var tok = storedSheetToken();
-    if(!tok || typeof window.sheetSync !== 'function') return;
+    if(!tok || typeof window.sheetSync !== 'function'){
+      try{
+        if(sessionStorage.getItem('family-pension-sheet-sync-pending') === '1' && typeof qStatus === 'function') qStatus('시트 토큰이 아직 없어요 · 「시트에서 가져오기」를 다시 눌러주세요.', 'warn');
+      }catch(e){}
+      return;
+    }
     sheetSyncDone = true;
     window.sheetSync(tok).catch(function(e){
+      var msg = '시트 연동 실패: ' + (e && e.message ? e.message : '알 수 없는 오류');
       var st = document.getElementById('status');
-      if(st) st.textContent = '시트 연동 실패: ' + (e && e.message ? e.message : '알 수 없는 오류');
+      if(st) st.textContent = msg;
+      if(typeof qStatus === 'function') qStatus(msg, 'crit');
     });
   }
   window.firebaseAuthUser = null;
