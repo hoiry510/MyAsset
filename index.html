@@ -2895,7 +2895,18 @@ async function qRun(only,quiet){
     var fx=null;
     if(doFx){try{fx=await qFxOne(usKey)}catch(e){errs.push('USD/KRW 환율: '+(e&&e.message?e.message:'알 수 없는 오류'))}}
     hs.forEach(function(h){var c=String(h.code||'').trim().toUpperCase(),v=got[c];if(!v)return;
-      h.price=v.price;if(v.name)h.name=v.name;
+      // 시트에서 가져온 미국 종목은 통화가 원화(KRW)이고 가격·매입가도
+      // 이미 원화로 환산된 값이다. Twelve Data는 달러 가격을 주므로,
+      // 통화 원화인 미국 종목은 달러 가격에 환율을 곱해 원화로 바꿔
+      // 넣어야 한다. 그렇지 않으면 달러 숫자 그대로 원화로 계산돼
+      // 평가액이 1,300배 이상 작게 나온다(증여 계좌가 3,949만원에서
+      // 49만원으로 보였던 원인). 통화 달러인 종목은 달러 그대로 둔다.
+      var appliedPrice=v.price;
+      if(v._market==='us'&&h.cur==='KRW'){
+        var fxRate=fx?fx.rate:n(S.pf.fx);
+        if(fxRate>0)appliedPrice=v.price*fxRate;
+      }
+      h.price=appliedPrice;if(v.name)h.name=v.name;
       if(v.date){h.qd='자동 '+v.date;if(!S.pf.priceDate||v.date>S.pf.priceDate)S.pf.priceDate=v.date}
       qSetInput('i-hold-'+h.id+'-name',h.name);qSetInput('i-hold-'+h.id+'-price',h.price);updated++;
     });
