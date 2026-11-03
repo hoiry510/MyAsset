@@ -3785,7 +3785,20 @@ if(location.hash==='#portfolio')showView('pf');else if(location.hash==='#budget'
       var cred = GoogleAuthProvider.credentialFromResult(result);
       if(cred && cred.accessToken){ storeSheetToken(cred.accessToken); sheetSyncDone = false; }
     }catch(e){}
-  }).catch(function(e){ console.error('리다이렉트 결과 확인 실패:', e); });
+  }).catch(function(e){
+    console.error('리다이렉트 결과 확인 실패:', e);
+    // 이전에는 이 오류가 콘솔에만 남아, 화면에서는 조용히 로그아웃 상태로 돌아왔다.
+    // 이제는 화면 상단 상태에 오류 코드를 보여줘 원인을 바로 알 수 있다.
+    try{
+      var code = (e && e.code) ? e.code : '알 수 없는 오류';
+      var msg = '리다이렉트 로그인 실패: ' + code;
+      if(code === 'auth/unauthorized-domain') msg += ' · 콘솔 Authorized domains에 hoiry510.github.io가 있는지 확인하세요';
+      else if(code === 'auth/web-storage-unsupported') msg += ' · 브라우저 쿠키·저장소가 차단돼 있어요 · 쿠키 허용 후 다시 시도하세요';
+      else if(code === 'auth/redirect-cancelled-by-user') msg += ' · 로그인 이동이 취소됐어요';
+      else if(code === 'auth/operation-not-allowed') msg += ' · 구글 로그인이 콘솔에서 켜져 있지 않아요';
+      setAuthStatus(msg);
+    }catch(_e){}
+  });
   var sheetSyncDone = false;
   function trySheetSyncAfterCloud(){
     return; // 값만 가져오는 가격 피드 방식으로 대체됨. OAuth 전체 연동은 자동 실행하지 않는다.
